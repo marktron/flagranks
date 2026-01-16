@@ -153,10 +153,6 @@ export function VotingScreen() {
     );
   }
 
-  // Determine which flag is A based on the matchupId
-  const [minId] = currentMatchup.matchupId.split("-").map(Number);
-  const aId = minId;
-
   // Get country names - only show after voting
   const getCountryName = (flag: typeof currentMatchup.a) => {
     if (result) {
@@ -237,10 +233,10 @@ export function VotingScreen() {
                 </h3>
 
                 <ResultsDisplay
-                  leftName={currentMatchup.a.id === aId ? result.aName : result.bName}
-                  rightName={currentMatchup.b.id === aId ? result.aName : result.bName}
-                  leftPct={currentMatchup.a.id === aId ? result.aPct : result.bPct}
-                  rightPct={currentMatchup.b.id === aId ? result.aPct : result.bPct}
+                  leftName={result.aName}
+                  rightName={result.bName}
+                  leftPct={result.aPct}
+                  rightPct={result.bPct}
                   leftIsWinner={selectedId === currentMatchup.a.id}
                   n={result.n}
                 />
@@ -260,10 +256,10 @@ export function VotingScreen() {
             <h3 className="text-base font-bold text-center mb-3">Global Results</h3>
 
             <ResultsDisplay
-              leftName={currentMatchup.a.id === aId ? result.aName : result.bName}
-              rightName={currentMatchup.b.id === aId ? result.aName : result.bName}
-              leftPct={currentMatchup.a.id === aId ? result.aPct : result.bPct}
-              rightPct={currentMatchup.b.id === aId ? result.aPct : result.bPct}
+              leftName={result.aName}
+              rightName={result.bName}
+              leftPct={result.aPct}
+              rightPct={result.bPct}
               leftIsWinner={selectedId === currentMatchup.a.id}
               n={result.n}
             />
