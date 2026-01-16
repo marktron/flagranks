@@ -1,8 +1,53 @@
-import { sql } from "@vercel/postgres";
+import { Signer } from "@aws-sdk/rds-signer";
+import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
+import { Pool, QueryResult, QueryResultRow } from "pg";
 import { UN_MEMBER_FLAGS } from "./seed-data";
 
 // Bayesian smoothing constant
 const SMOOTHING_K = 10;
+
+// Create the database pool with AWS IAM authentication
+const signer = new Signer({
+  hostname: process.env.PGHOST!,
+  port: Number(process.env.PGPORT || 5432),
+  username: process.env.PGUSER!,
+  region: process.env.AWS_REGION!,
+  credentials: awsCredentialsProvider({
+    roleArn: process.env.AWS_ROLE_ARN!,
+    clientConfig: { region: process.env.AWS_REGION! },
+  }),
+});
+
+const pool = new Pool({
+  host: process.env.PGHOST,
+  user: process.env.PGUSER,
+  database: process.env.PGDATABASE || "postgres",
+  password: () => signer.getAuthToken(),
+  port: Number(process.env.PGPORT || 5432),
+  ssl: { rejectUnauthorized: false },
+});
+
+// Attach pool for Vercel Functions (if available)
+if (typeof globalThis !== "undefined") {
+  try {
+    // Dynamic import to avoid issues in non-Vercel environments
+    import("@vercel/functions").then(({ attachDatabasePool }) => {
+      attachDatabasePool(pool);
+    }).catch(() => {
+      // Ignore if not in Vercel environment
+    });
+  } catch {
+    // Ignore
+  }
+}
+
+// Helper function to run queries
+async function query<T extends QueryResultRow = QueryResultRow>(
+  text: string,
+  params?: unknown[]
+): Promise<QueryResult<T>> {
+  return pool.query<T>(text, params);
+}
 
 export interface Flag {
   id: number;
@@ -36,15 +81,21 @@ export function calculateSmoothedScore(wins: number, games: number): number {
 // Get a random matchup, prioritizing under-sampled flags
 export async function getMatchup(excludeIds: number[] = []) {
   // Get flags with their game counts, prioritizing those with fewer games
-  const result = await sql`
-    SELECT f.id, f.country_name, f.iso2, f.svg_url,
-           COALESCE(fs.games, 0) as games
-    FROM flags f
-    LEFT JOIN flag_stats fs ON f.id = fs.flag_id
-    WHERE f.is_active = true
-    ORDER BY COALESCE(fs.games, 0) ASC, RANDOM()
-    LIMIT 50
-  `;
+  const result = await query<{
+    id: number;
+    country_name: string;
+    iso2: string;
+    svg_url: string;
+    games: number;
+  }>(
+    `SELECT f.id, f.country_name, f.iso2, f.svg_url,
+            COALESCE(fs.games, 0) as games
+     FROM flags f
+     LEFT JOIN flag_stats fs ON f.id = fs.flag_id
+     WHERE f.is_active = true
+     ORDER BY COALESCE(fs.games, 0) ASC, RANDOM()
+     LIMIT 50`
+  );
 
   const flags = result.rows;
   if (flags.length < 2) {
@@ -53,7 +104,7 @@ export async function getMatchup(excludeIds: number[] = []) {
 
   // Pick flag_a from bottom quartile (under-sampled)
   const bottomQuartile = flags.slice(0, Math.max(Math.ceil(flags.length / 4), 2));
-  let flagA = bottomQuartile[Math.floor(Math.random() * bottomQuartile.length)];
+  const flagA = bottomQuartile[Math.floor(Math.random() * bottomQuartile.length)];
 
   // Pick flag_b randomly from remaining flags
   const remaining = flags.filter(
@@ -94,49 +145,54 @@ export async function recordVote(
 
   // Upsert pairing votes
   if (winnerIsA) {
-    await sql`
-      INSERT INTO votes_agg_pairings (pairing_id, a_id, b_id, a_votes, b_votes, n_total, updated_at)
-      VALUES (${pairingId}, ${minId}, ${maxId}, 1, 0, 1, NOW())
-      ON CONFLICT (pairing_id) DO UPDATE SET
-        a_votes = votes_agg_pairings.a_votes + 1,
-        n_total = votes_agg_pairings.n_total + 1,
-        updated_at = NOW()
-    `;
+    await query(
+      `INSERT INTO votes_agg_pairings (pairing_id, a_id, b_id, a_votes, b_votes, n_total, updated_at)
+       VALUES ($1, $2, $3, 1, 0, 1, NOW())
+       ON CONFLICT (pairing_id) DO UPDATE SET
+         a_votes = votes_agg_pairings.a_votes + 1,
+         n_total = votes_agg_pairings.n_total + 1,
+         updated_at = NOW()`,
+      [pairingId, minId, maxId]
+    );
   } else {
-    await sql`
-      INSERT INTO votes_agg_pairings (pairing_id, a_id, b_id, a_votes, b_votes, n_total, updated_at)
-      VALUES (${pairingId}, ${minId}, ${maxId}, 0, 1, 1, NOW())
-      ON CONFLICT (pairing_id) DO UPDATE SET
-        b_votes = votes_agg_pairings.b_votes + 1,
-        n_total = votes_agg_pairings.n_total + 1,
-        updated_at = NOW()
-    `;
+    await query(
+      `INSERT INTO votes_agg_pairings (pairing_id, a_id, b_id, a_votes, b_votes, n_total, updated_at)
+       VALUES ($1, $2, $3, 0, 1, 1, NOW())
+       ON CONFLICT (pairing_id) DO UPDATE SET
+         b_votes = votes_agg_pairings.b_votes + 1,
+         n_total = votes_agg_pairings.n_total + 1,
+         updated_at = NOW()`,
+      [pairingId, minId, maxId]
+    );
   }
 
   // Update winner stats
-  await sql`
-    INSERT INTO flag_stats (flag_id, wins, losses, games, updated_at)
-    VALUES (${winnerId}, 1, 0, 1, NOW())
-    ON CONFLICT (flag_id) DO UPDATE SET
-      wins = flag_stats.wins + 1,
-      games = flag_stats.games + 1,
-      updated_at = NOW()
-  `;
+  await query(
+    `INSERT INTO flag_stats (flag_id, wins, losses, games, updated_at)
+     VALUES ($1, 1, 0, 1, NOW())
+     ON CONFLICT (flag_id) DO UPDATE SET
+       wins = flag_stats.wins + 1,
+       games = flag_stats.games + 1,
+       updated_at = NOW()`,
+    [winnerId]
+  );
 
   // Update loser stats
-  await sql`
-    INSERT INTO flag_stats (flag_id, wins, losses, games, updated_at)
-    VALUES (${loserId}, 0, 1, 1, NOW())
-    ON CONFLICT (flag_id) DO UPDATE SET
-      losses = flag_stats.losses + 1,
-      games = flag_stats.games + 1,
-      updated_at = NOW()
-  `;
+  await query(
+    `INSERT INTO flag_stats (flag_id, wins, losses, games, updated_at)
+     VALUES ($1, 0, 1, 1, NOW())
+     ON CONFLICT (flag_id) DO UPDATE SET
+       losses = flag_stats.losses + 1,
+       games = flag_stats.games + 1,
+       updated_at = NOW()`,
+    [loserId]
+  );
 
   // Get updated pairing stats
-  const pairingResult = await sql`
-    SELECT a_votes, b_votes, n_total FROM votes_agg_pairings WHERE pairing_id = ${pairingId}
-  `;
+  const pairingResult = await query<{ a_votes: number; b_votes: number; n_total: number }>(
+    `SELECT a_votes, b_votes, n_total FROM votes_agg_pairings WHERE pairing_id = $1`,
+    [pairingId]
+  );
   const pairing = pairingResult.rows[0];
   const pairingStats: PairingStats = {
     a_votes: pairing.a_votes,
@@ -147,12 +203,18 @@ export async function recordVote(
   };
 
   // Get updated flag stats
-  const flagsResult = await sql`
-    SELECT f.id, f.country_name, COALESCE(fs.wins, 0) as wins, COALESCE(fs.games, 0) as games
-    FROM flags f
-    LEFT JOIN flag_stats fs ON f.id = fs.flag_id
-    WHERE f.id IN (${winnerId}, ${loserId})
-  `;
+  const flagsResult = await query<{
+    id: number;
+    country_name: string;
+    wins: number;
+    games: number;
+  }>(
+    `SELECT f.id, f.country_name, COALESCE(fs.wins, 0) as wins, COALESCE(fs.games, 0) as games
+     FROM flags f
+     LEFT JOIN flag_stats fs ON f.id = fs.flag_id
+     WHERE f.id = $1 OR f.id = $2`,
+    [winnerId, loserId]
+  );
 
   const winner = flagsResult.rows.find((f) => f.id === winnerId)!;
   const loser = flagsResult.rows.find((f) => f.id === loserId)!;
@@ -174,20 +236,30 @@ export async function recordVote(
 
 // Get leaderboard
 export async function getLeaderboard(limit = 200): Promise<FlagWithStats[]> {
-  const result = await sql`
-    SELECT
-      f.id, f.country_name, f.iso2, f.svg_url, f.is_active,
-      COALESCE(fs.wins, 0) as wins,
-      COALESCE(fs.losses, 0) as losses,
-      COALESCE(fs.games, 0) as games
-    FROM flags f
-    LEFT JOIN flag_stats fs ON f.id = fs.flag_id
-    WHERE f.is_active = true
-    ORDER BY
-      (COALESCE(fs.wins, 0) + ${SMOOTHING_K} * 0.5) / (COALESCE(fs.games, 0) + ${SMOOTHING_K}) DESC,
-      COALESCE(fs.games, 0) DESC
-    LIMIT ${limit}
-  `;
+  const result = await query<{
+    id: number;
+    country_name: string;
+    iso2: string;
+    svg_url: string;
+    is_active: boolean;
+    wins: number;
+    losses: number;
+    games: number;
+  }>(
+    `SELECT
+       f.id, f.country_name, f.iso2, f.svg_url, f.is_active,
+       COALESCE(fs.wins, 0) as wins,
+       COALESCE(fs.losses, 0) as losses,
+       COALESCE(fs.games, 0) as games
+     FROM flags f
+     LEFT JOIN flag_stats fs ON f.id = fs.flag_id
+     WHERE f.is_active = true
+     ORDER BY
+       (COALESCE(fs.wins, 0) + $1 * 0.5) / (COALESCE(fs.games, 0) + $1) DESC,
+       COALESCE(fs.games, 0) DESC
+     LIMIT $2`,
+    [SMOOTHING_K, limit]
+  );
 
   return result.rows.map((row) => ({
     id: row.id,
@@ -205,16 +277,26 @@ export async function getLeaderboard(limit = 200): Promise<FlagWithStats[]> {
 
 // Get single flag details
 export async function getFlagById(id: number): Promise<FlagWithStats | null> {
-  const result = await sql`
-    SELECT
-      f.id, f.country_name, f.iso2, f.svg_url, f.is_active,
-      COALESCE(fs.wins, 0) as wins,
-      COALESCE(fs.losses, 0) as losses,
-      COALESCE(fs.games, 0) as games
-    FROM flags f
-    LEFT JOIN flag_stats fs ON f.id = fs.flag_id
-    WHERE f.id = ${id}
-  `;
+  const result = await query<{
+    id: number;
+    country_name: string;
+    iso2: string;
+    svg_url: string;
+    is_active: boolean;
+    wins: number;
+    losses: number;
+    games: number;
+  }>(
+    `SELECT
+       f.id, f.country_name, f.iso2, f.svg_url, f.is_active,
+       COALESCE(fs.wins, 0) as wins,
+       COALESCE(fs.losses, 0) as losses,
+       COALESCE(fs.games, 0) as games
+     FROM flags f
+     LEFT JOIN flag_stats fs ON f.id = fs.flag_id
+     WHERE f.id = $1`,
+    [id]
+  );
 
   if (result.rows.length === 0) return null;
 
@@ -236,7 +318,7 @@ export async function getFlagById(id: number): Promise<FlagWithStats | null> {
 // Seed the database with UN member flags
 export async function seedDatabase() {
   // Create tables
-  await sql`
+  await query(`
     CREATE TABLE IF NOT EXISTS flags (
       id SERIAL PRIMARY KEY,
       country_name VARCHAR(100) NOT NULL,
@@ -245,9 +327,9 @@ export async function seedDatabase() {
       is_active BOOLEAN DEFAULT true,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
-  `;
+  `);
 
-  await sql`
+  await query(`
     CREATE TABLE IF NOT EXISTS flag_stats (
       flag_id INTEGER PRIMARY KEY REFERENCES flags(id),
       wins INTEGER DEFAULT 0,
@@ -255,9 +337,9 @@ export async function seedDatabase() {
       games INTEGER DEFAULT 0,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
-  `;
+  `);
 
-  await sql`
+  await query(`
     CREATE TABLE IF NOT EXISTS votes_agg_pairings (
       pairing_id VARCHAR(20) PRIMARY KEY,
       a_id INTEGER NOT NULL REFERENCES flags(id),
@@ -267,15 +349,20 @@ export async function seedDatabase() {
       n_total INTEGER DEFAULT 0,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
-  `;
+  `);
+
+  // Create indexes
+  await query(`CREATE INDEX IF NOT EXISTS idx_flag_stats_games ON flag_stats(games)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_flags_active ON flags(is_active)`);
 
   // Insert flags
   for (const flag of UN_MEMBER_FLAGS) {
-    await sql`
-      INSERT INTO flags (country_name, iso2, svg_url, is_active)
-      VALUES (${flag.country_name}, ${flag.iso2}, ${`/flags/${flag.iso2}.svg`}, true)
-      ON CONFLICT (iso2) DO NOTHING
-    `;
+    await query(
+      `INSERT INTO flags (country_name, iso2, svg_url, is_active)
+       VALUES ($1, $2, $3, true)
+       ON CONFLICT (iso2) DO NOTHING`,
+      [flag.country_name, flag.iso2, `/flags/${flag.iso2}.svg`]
+    );
   }
 
   return { success: true, count: UN_MEMBER_FLAGS.length };
