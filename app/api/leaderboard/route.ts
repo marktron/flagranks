@@ -8,10 +8,17 @@ export async function GET(request: Request) {
 
     const flags = await getLeaderboard(Math.min(limit, 200));
 
-    return NextResponse.json({
-      flags,
-      total: flags.length,
-    });
+    return NextResponse.json(
+      {
+        flags,
+        total: flags.length,
+      },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+        },
+      }
+    );
   } catch (error) {
     console.error("Error getting leaderboard:", error);
     return NextResponse.json(
