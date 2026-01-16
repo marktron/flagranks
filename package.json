@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@aws-sdk/credential-providers": "^3.970.0",
     "@aws-sdk/rds-signer": "^3.970.0",
     "@base-ui/react": "^1.1.0",
     "@vercel/functions": "^3.3.6",

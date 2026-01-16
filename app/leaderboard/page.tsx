@@ -92,9 +92,6 @@ export default function LeaderboardPage() {
             <Trophy className="w-8 h-8 text-pop" />
             Leaderboard
           </h1>
-          <p className="text-ink-light mt-1">
-            Ranked by design score (Bayesian smoothed)
-          </p>
         </div>
 
         <Button variant="outline" onClick={handleShare} className="gap-2">
@@ -104,7 +101,7 @@ export default function LeaderboardPage() {
       </div>
 
       {/* Leaderboard table */}
-      <div className="sticker-card overflow-hidden">
+      <div className="sticker-card sticker-card-static overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -196,12 +193,24 @@ export default function LeaderboardPage() {
           </table>
         </div>
 
-        {flags.length === 0 && (
-          <div className="py-12 text-center text-ink-light">
-            <p>No votes recorded yet. Be the first to vote!</p>
-            <Button asChild className="mt-4">
-              <Link href="/">Start Voting</Link>
-            </Button>
+        {flags.length === 0 && !isLoading && (
+          <div className="py-12 text-center">
+            <div className="text-5xl mb-4">🏁</div>
+            <p className="text-ink-light mb-4">
+              {process.env.NODE_ENV === "development"
+                ? "Database not available locally. Visit production to see the leaderboard."
+                : "No votes recorded yet. Be the first to vote!"}
+            </p>
+            <div className="flex gap-3 justify-center">
+              <Button asChild variant="outline">
+                <Link href="/">Start Voting</Link>
+              </Button>
+              <Button asChild>
+                <a href="https://flagranks.vercel.app/leaderboard" target="_blank" rel="noopener noreferrer">
+                  View Production
+                </a>
+              </Button>
+            </div>
           </div>
         )}
       </div>
@@ -210,7 +219,7 @@ export default function LeaderboardPage() {
       <div className="mt-6 text-sm text-ink-light text-center">
         <p>
           <strong>Score</strong> = Bayesian-smoothed win rate (accounts for
-          sample size)
+          sample size variations)
         </p>
       </div>
     </div>

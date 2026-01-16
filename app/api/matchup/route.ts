@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getMatchup } from "@/lib/db";
+import { getMatchup, getFlagIdByIso2 } from "@/lib/db";
+import { headers } from "next/headers";
 
 export async function GET(request: Request) {
   try {
@@ -9,6 +10,16 @@ export async function GET(request: Request) {
     const excludeIds = excludeParam
       ? excludeParam.split(",").map((id) => parseInt(id, 10)).filter(Boolean)
       : [];
+
+    // Exclude user's own country based on Vercel geolocation
+    const headersList = await headers();
+    const userCountry = headersList.get("x-vercel-ip-country");
+    if (userCountry) {
+      const userFlagId = await getFlagIdByIso2(userCountry);
+      if (userFlagId && !excludeIds.includes(userFlagId)) {
+        excludeIds.push(userFlagId);
+      }
+    }
 
     const { flagA, flagB } = await getMatchup(excludeIds);
 
@@ -27,9 +38,11 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("Error getting matchup:", error);
+    const message = error instanceof Error ? error.message : "Failed to get matchup";
+    const isLocalDbError = message.includes("Database not available");
     return NextResponse.json(
-      { error: "Failed to get matchup" },
-      { status: 500 }
+      { error: message, isLocalDevError: isLocalDbError },
+      { status: isLocalDbError ? 503 : 500 }
     );
   }
 }

@@ -2,89 +2,89 @@
 
 import { cn } from "@/lib/utils";
 
-interface ResultBarProps {
-  countryName: string;
-  percentage: number;
-  isWinner: boolean;
-  className?: string;
-}
-
-export function ResultBar({
-  countryName,
-  percentage,
-  isWinner,
-  className,
-}: ResultBarProps) {
-  return (
-    <div className={cn("w-full", className)}>
-      <div className="flex justify-between items-baseline mb-1.5">
-        <span
-          className={cn(
-            "font-semibold text-sm sm:text-base truncate max-w-[60%]",
-            isWinner && "text-pop"
-          )}
-        >
-          {countryName}
-        </span>
-        <span
-          className={cn(
-            "font-bold text-lg sm:text-xl tabular-nums",
-            isWinner && "text-pop"
-          )}
-        >
-          {percentage}%
-        </span>
-      </div>
-      <div className="result-bar">
-        <div
-          className={cn("result-bar-fill", isWinner && "winner")}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
 interface ResultsDisplayProps {
-  aName: string;
-  bName: string;
-  aPct: number;
-  bPct: number;
+  leftName: string;
+  rightName: string;
+  leftPct: number;
+  rightPct: number;
+  leftIsWinner: boolean;
   n: number;
-  winnerId: number;
-  aId: number;
   className?: string;
 }
 
 export function ResultsDisplay({
-  aName,
-  bName,
-  aPct,
-  bPct,
+  leftName,
+  rightName,
+  leftPct,
+  rightPct,
+  leftIsWinner,
   n,
-  winnerId,
-  aId,
   className,
 }: ResultsDisplayProps) {
-  const aIsWinner = winnerId === aId;
+  const rightIsWinner = !leftIsWinner;
 
   return (
-    <div className={cn("space-y-4", className)}>
-      <div className="opacity-0 animate-slide-up delay-1" style={{ animationFillMode: 'forwards' }}>
-        <ResultBar
-          countryName={aName}
-          percentage={aPct}
-          isWinner={aIsWinner}
+    <div className={cn("space-y-1.5 sm:space-y-2", className)}>
+      {/* Labels row */}
+      <div className="flex justify-between items-end opacity-0 animate-slide-up delay-1" style={{ animationFillMode: 'forwards' }}>
+        <div className="flex items-baseline gap-1 sm:gap-2">
+          <span
+            className={cn(
+              "font-bold text-base sm:text-xl tabular-nums",
+              leftIsWinner && "text-pop"
+            )}
+          >
+            {leftPct}%
+          </span>
+          <span
+            className={cn(
+              "font-semibold text-xs sm:text-sm truncate max-w-[130px] sm:max-w-[120px]",
+              leftIsWinner ? "text-pop" : "text-ink-light"
+            )}
+          >
+            {leftName}
+          </span>
+        </div>
+        <div className="flex items-baseline gap-1 sm:gap-2">
+          <span
+            className={cn(
+              "font-semibold text-xs sm:text-sm truncate max-w-[130px] sm:max-w-[120px] text-right",
+              rightIsWinner ? "text-pop" : "text-ink-light"
+            )}
+          >
+            {rightName}
+          </span>
+          <span
+            className={cn(
+              "font-bold text-base sm:text-xl tabular-nums",
+              rightIsWinner && "text-pop"
+            )}
+          >
+            {rightPct}%
+          </span>
+        </div>
+      </div>
+
+      {/* Single combined bar */}
+      <div className="h-6 sm:h-8 w-full flex rounded-md border-2 border-ink overflow-hidden opacity-0 animate-slide-up delay-2" style={{ animationFillMode: 'forwards' }}>
+        <div
+          className={cn(
+            "h-full transition-all duration-500 ease-out",
+            leftIsWinner ? "bg-pop-light" : "bg-paper-dark"
+          )}
+          style={{ width: `${leftPct}%` }}
+        />
+        <div
+          className={cn(
+            "h-full transition-all duration-500 ease-out border-l-2 border-ink",
+            rightIsWinner ? "bg-pop-light" : "bg-paper-dark"
+          )}
+          style={{ width: `${rightPct}%` }}
         />
       </div>
-      <div className="opacity-0 animate-slide-up delay-2" style={{ animationFillMode: 'forwards' }}>
-        <ResultBar
-          countryName={bName}
-          percentage={bPct}
-          isWinner={!aIsWinner}
-        />
-      </div>
-      <p className="text-center text-sm text-ink-light opacity-0 animate-slide-up delay-3" style={{ animationFillMode: 'forwards' }}>
+
+      {/* Vote count */}
+      <p className="text-center text-xs text-ink-light opacity-0 animate-slide-up delay-3" style={{ animationFillMode: 'forwards' }}>
         Based on <span className="font-semibold text-ink">{n.toLocaleString()}</span> vote{n !== 1 ? "s" : ""}
       </p>
     </div>

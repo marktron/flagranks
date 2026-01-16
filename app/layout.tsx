@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Syne, Space_Mono } from "next/font/google";
 import "./globals.css";
 import { Header } from "@/components/header";
-import { SettingsProvider } from "@/components/settings-provider";
 
 const syne = Syne({
   subsets: ["latin"],
@@ -37,24 +36,21 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${syne.variable} ${spaceMono.variable}`}>
       <body className="antialiased min-h-screen flex flex-col">
-        <SettingsProvider>
-          {/* Paper texture overlay */}
-          <div className="fixed inset-0 paper-texture pointer-events-none" />
+        {/* Paper texture overlay */}
+        <div className="fixed inset-0 paper-texture pointer-events-none" />
 
-          <Header />
+        <Header />
 
-          <main className="flex-1 relative">{children}</main>
+        <main className="flex-1 relative">{children}</main>
 
-          {/* Footer */}
-          <footer className="border-t-2 border-ink py-6 mt-auto">
-            <div className="max-w-6xl mx-auto px-4 text-center text-sm text-ink-light">
-              <p>
-                Comparing {193} UN member flags{" "}
-                <span className="text-pop">✦</span> No accounts required
-              </p>
-            </div>
-          </footer>
-        </SettingsProvider>
+        {/* Footer */}
+        <footer className="border-t-2 border-ink py-6 mt-auto">
+          <div className="max-w-6xl mx-auto px-4 text-center text-sm text-ink-light">
+            <p>
+             🇨🇦 Made by <a href="https://markallen.io" target="_blank" rel="noopener noreferrer" className="text-pop">Mark Allen</a>
+            </p>
+          </div>
+        </footer>
       </body>
     </html>
   );

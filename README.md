@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# FlagRanks
 
-## Getting Started
+A web game where users vote on which national flag is better designed. Compare flags head-to-head, see community results, and explore the leaderboard.
 
-First, run the development server:
+**Live site:** [flagranks.com](https://flagranks.com)
+
+## Features
+
+- **Zero friction voting** - No sign-up required, just tap and vote
+- **193 UN member flags** - Compare flags from around the world
+- **Community results** - See how your taste compares to others
+- **Bayesian-smoothed rankings** - Leaderboard accounts for sample size
+- **Country exclusion** - Your own country's flag is excluded (via IP geolocation)
+- **Keyboard support** - Use arrow keys for rapid voting on desktop
+- **Mobile-first design** - Optimized for touch with bottom sheet results
+
+## Tech Stack
+
+- **Framework:** Next.js 15 (App Router)
+- **Database:** AWS Aurora PostgreSQL (via Vercel integration)
+- **Styling:** Tailwind CSS 4
+- **Components:** shadcn/ui
+- **Deployment:** Vercel
+
+## Local Development
+
+The AWS database uses IAM authentication that only works on Vercel. For local development, use Docker:
 
 ```bash
+# Start local PostgreSQL
+docker-compose up -d
+
+# Install dependencies
+npm install
+
+# Run development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The app will detect the local database and connect automatically.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+For production (set in Vercel):
 
-## Learn More
+```
+PGHOST=<aurora-cluster-endpoint>
+PGUSER=<database-user>
+PGDATABASE=<database-name>
+PGPORT=5432
+AWS_REGION=<aws-region>
+AWS_ROLE_ARN=<iam-role-arn>
+```
 
-To learn more about Next.js, take a look at the following resources:
+For local development with Docker, create `.env.local`:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+PGHOST=localhost
+PGUSER=postgres
+PGPASSWORD=postgres
+PGDATABASE=flagranks
+PGPORT=5432
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Database Schema
 
-## Deploy on Vercel
+- **flags** - Country name, ISO2 code, SVG URL
+- **flag_stats** - Wins, losses, total games per flag
+- **votes_agg_pairings** - Aggregated votes for each flag pairing
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## API Routes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `GET /api/matchup` - Get a random flag pairing
+- `POST /api/vote` - Record a vote
+- `GET /api/leaderboard` - Get ranked flags
+- `POST /api/seed` - Seed the database (one-time setup)

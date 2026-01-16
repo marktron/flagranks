@@ -6,39 +6,52 @@ import { UN_MEMBER_FLAGS } from "./seed-data";
 // Bayesian smoothing constant
 const SMOOTHING_K = 10;
 
-// Create the database pool with AWS IAM authentication
-const signer = new Signer({
-  hostname: process.env.PGHOST!,
-  port: Number(process.env.PGPORT || 5432),
-  username: process.env.PGUSER!,
-  region: process.env.AWS_REGION!,
-  credentials: awsCredentialsProvider({
-    roleArn: process.env.AWS_ROLE_ARN!,
-    clientConfig: { region: process.env.AWS_REGION! },
-  }),
-});
+// Check if we're running on Vercel (has proper AWS IAM auth via OIDC)
+const isVercel = process.env.VERCEL === "1";
 
-const pool = new Pool({
-  host: process.env.PGHOST,
-  user: process.env.PGUSER,
-  database: process.env.PGDATABASE || "postgres",
-  password: () => signer.getAuthToken(),
-  port: Number(process.env.PGPORT || 5432),
-  ssl: { rejectUnauthorized: false },
-});
+// Create pool with appropriate credentials
+let pool: Pool | null = null;
 
-// Attach pool for Vercel Functions (if available)
-if (typeof globalThis !== "undefined") {
-  try {
-    // Dynamic import to avoid issues in non-Vercel environments
-    import("@vercel/functions").then(({ attachDatabasePool }) => {
-      attachDatabasePool(pool);
-    }).catch(() => {
-      // Ignore if not in Vercel environment
+// Option 1: Local development with password-based auth (Docker PostgreSQL)
+if (process.env.PGPASSWORD || process.env.DATABASE_URL) {
+  if (process.env.DATABASE_URL) {
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  } else {
+    pool = new Pool({
+      host: process.env.PGHOST || "localhost",
+      user: process.env.PGUSER || "postgres",
+      password: process.env.PGPASSWORD,
+      database: process.env.PGDATABASE || "flagranks",
+      port: Number(process.env.PGPORT || 5432),
     });
-  } catch {
-    // Ignore
   }
+}
+// Option 2: Vercel production with AWS IAM auth
+else if (isVercel && process.env.PGHOST && process.env.AWS_ROLE_ARN) {
+  const signer = new Signer({
+    hostname: process.env.PGHOST,
+    port: Number(process.env.PGPORT || 5432),
+    username: process.env.PGUSER!,
+    region: process.env.AWS_REGION!,
+    credentials: awsCredentialsProvider({
+      roleArn: process.env.AWS_ROLE_ARN,
+      clientConfig: { region: process.env.AWS_REGION! },
+    }),
+  });
+
+  pool = new Pool({
+    host: process.env.PGHOST,
+    user: process.env.PGUSER,
+    database: process.env.PGDATABASE || "postgres",
+    password: () => signer.getAuthToken(),
+    port: Number(process.env.PGPORT || 5432),
+    ssl: { rejectUnauthorized: false },
+  });
+
+  // Attach pool for Vercel Functions
+  import("@vercel/functions").then(({ attachDatabasePool }) => {
+    if (pool) attachDatabasePool(pool);
+  }).catch(() => {});
 }
 
 // Helper function to run queries
@@ -46,6 +59,12 @@ async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[]
 ): Promise<QueryResult<T>> {
+  if (!pool) {
+    throw new Error(
+      "Database not available. The AWS PostgreSQL connection only works on Vercel. " +
+      "For local development, deploy to Vercel or set up a local PostgreSQL instance."
+    );
+  }
   return pool.query<T>(text, params);
 }
 
@@ -97,7 +116,8 @@ export async function getMatchup(excludeIds: number[] = []) {
      LIMIT 50`
   );
 
-  const flags = result.rows;
+  // Filter out excluded flags (e.g., user's own country)
+  const flags = result.rows.filter((f) => !excludeIds.includes(f.id));
   if (flags.length < 2) {
     throw new Error("Not enough flags in database");
   }
@@ -107,15 +127,10 @@ export async function getMatchup(excludeIds: number[] = []) {
   const flagA = bottomQuartile[Math.floor(Math.random() * bottomQuartile.length)];
 
   // Pick flag_b randomly from remaining flags
-  const remaining = flags.filter(
-    (f) => f.id !== flagA.id && !excludeIds.includes(f.id)
-  );
+  const remaining = flags.filter((f) => f.id !== flagA.id);
 
   if (remaining.length === 0) {
-    // Fallback if all excluded
-    const allOthers = flags.filter((f) => f.id !== flagA.id);
-    const flagB = allOthers[Math.floor(Math.random() * allOthers.length)];
-    return { flagA, flagB };
+    throw new Error("Not enough flags for matchup");
   }
 
   const flagB = remaining[Math.floor(Math.random() * remaining.length)];
@@ -273,6 +288,15 @@ export async function getLeaderboard(limit = 200): Promise<FlagWithStats[]> {
     smoothed_score: calculateSmoothedScore(row.wins, row.games),
     raw_win_pct: row.games > 0 ? Math.round((row.wins / row.games) * 100) : 50,
   }));
+}
+
+// Get flag ID by ISO2 code
+export async function getFlagIdByIso2(iso2: string): Promise<number | null> {
+  const result = await query<{ id: number }>(
+    `SELECT id FROM flags WHERE UPPER(iso2) = UPPER($1) AND is_active = true`,
+    [iso2]
+  );
+  return result.rows[0]?.id ?? null;
 }
 
 // Get single flag details

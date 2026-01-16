@@ -31,16 +31,16 @@ export function FlagCard({
       onClick={onClick}
       disabled={isRevealed}
       className={cn(
-        "sticker-card relative flex flex-col items-center p-4 sm:p-6",
-        "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-pop focus-visible:ring-offset-2",
+        "sticker-card relative flex flex-col items-center p-2 sm:p-6",
+        "cursor-pointer focus:outline-none",
+        !isSelected && "focus-visible:ring-2 focus-visible:ring-pop focus-visible:ring-offset-2",
         "disabled:cursor-default disabled:hover:transform-none disabled:hover:shadow-[4px_4px_0_0_var(--ink),0_8px_24px_-8px_oklch(0.3_0.02_60_/_0.15)]",
-        isSelected && "selected",
-        isWinner && isRevealed && "border-pop",
+        isSelected && "selected ring-0 ring-offset-0",
         className
       )}
     >
       {/* Flag image container */}
-      <div className="relative w-full aspect-[4/3] overflow-hidden rounded-lg border-2 border-ink bg-paper-dark">
+      <div className="relative w-full aspect-[4/3] overflow-hidden rounded-lg shadow-lg shadow-ink/10">
         <Image
           src={svgUrl}
           alt={isRevealed && countryName ? `Flag of ${countryName}` : "Flag"}
@@ -50,12 +50,15 @@ export function FlagCard({
         />
       </div>
 
-      {/* Country name - hidden until revealed */}
-      <div className="mt-4 h-8 flex items-center justify-center">
+      {/* Country name - hidden until revealed, completely hidden on mobile pre-vote */}
+      <div className={cn(
+        "mt-3 sm:mt-4 h-7 sm:h-8 items-center justify-center",
+        isRevealed ? "flex" : "hidden sm:flex"
+      )}>
         {isRevealed && countryName ? (
           <span
             className={cn(
-              "text-lg sm:text-xl font-bold text-center animate-pop-in",
+              "text-base sm:text-xl font-bold text-center animate-pop-in",
               isWinner && "text-pop"
             )}
           >
@@ -64,19 +67,18 @@ export function FlagCard({
         ) : (
           <span className="text-sm text-ink-light font-medium">
             {keyHint ? (
+              /* Desktop only: show keyboard hint */
               <span className="flex items-center gap-2">
                 Press <span className="kbd-hint">{keyHint}</span>
               </span>
-            ) : (
-              "???"
-            )}
+            ) : null}
           </span>
         )}
       </div>
 
       {/* Winner badge */}
       {isRevealed && isWinner && (
-        <div className="absolute -top-3 -right-3 bg-pop text-primary-foreground text-xs font-bold px-2 py-1 rounded-full border-2 border-ink shadow-[2px_2px_0_0_var(--ink)] animate-pop-in">
+        <div className="absolute -top-3 -right-3 bg-pop text-primary-foreground text-xs font-bold px-2 py-1 rounded-full border-2 border-[oklch(0.45_0.12_195)] shadow-[2px_2px_0_0_oklch(0.35_0.10_195)] animate-pop-in">
           YOUR PICK
         </div>
       )}
