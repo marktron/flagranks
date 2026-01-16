@@ -24,7 +24,11 @@ export function ResultsDisplay({
   const rightIsWinner = !leftIsWinner;
 
   return (
-    <div className={cn("space-y-1.5 sm:space-y-2", className)}>
+    <div
+      className={cn("space-y-1.5 sm:space-y-2", className)}
+      role="group"
+      aria-label={`Voting results: ${leftName} ${leftPct}%, ${rightName} ${rightPct}%`}
+    >
       {/* Labels row */}
       <div className="flex justify-between items-end opacity-0 animate-slide-up delay-1" style={{ animationFillMode: 'forwards' }}>
         <div className="flex items-baseline gap-1 sm:gap-2">
@@ -66,7 +70,11 @@ export function ResultsDisplay({
       </div>
 
       {/* Single combined bar */}
-      <div className="h-6 sm:h-8 w-full flex rounded-md border-2 border-ink overflow-hidden opacity-0 animate-slide-up delay-2" style={{ animationFillMode: 'forwards' }}>
+      <div
+        className="h-6 sm:h-8 w-full flex rounded-md border-2 border-ink overflow-hidden opacity-0 animate-slide-up delay-2"
+        style={{ animationFillMode: 'forwards' }}
+        aria-hidden="true"
+      >
         <div
           className={cn(
             "h-full transition-all duration-500 ease-out",

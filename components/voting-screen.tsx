@@ -3,173 +3,144 @@
 import { useCallback, useEffect, useState } from "react";
 import { FlagCard } from "./flag-card";
 import { ResultsDisplay } from "./result-bar";
+import { VoteErrorToast } from "./vote-error-toast";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Loader2 } from "lucide-react";
-
-interface Matchup {
-  a: { id: number; svg_url: string; country_name: string };
-  b: { id: number; svg_url: string; country_name: string };
-  matchupId: string;
-}
-
-interface VoteResult {
-  pairing: {
-    aName: string;
-    bName: string;
-    aPct: number;
-    bPct: number;
-    n: number;
-  };
-  winner: { id: number; country_name: string };
-  loser: { id: number; country_name: string };
-}
-
-const RECENT_PAIRS_KEY = "flagranks_recent_pairs";
-const MAX_RECENT_PAIRS = 25;
-
-function getRecentPairs(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const stored = sessionStorage.getItem(RECENT_PAIRS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-}
-
-function addRecentPair(matchupId: string) {
-  const pairs = getRecentPairs();
-  pairs.push(matchupId);
-  if (pairs.length > MAX_RECENT_PAIRS) {
-    pairs.shift();
-  }
-  sessionStorage.setItem(RECENT_PAIRS_KEY, JSON.stringify(pairs));
-}
+import { recordPersonalVote } from "@/lib/personal-stats";
+import { useMatchupQueue } from "@/hooks/use-matchup-queue";
+import { useVoteQueue } from "@/hooks/use-vote-queue";
+import { useVotingKeyboard } from "@/hooks/use-voting-keyboard";
+import { usePageVisibility } from "@/hooks/use-page-visibility";
+import type { OptimisticResult } from "@/lib/types";
 
 export function VotingScreen() {
-  const [matchup, setMatchup] = useState<Matchup | null>(null);
-  const [result, setResult] = useState<VoteResult | null>(null);
+  const [result, setResult] = useState<OptimisticResult | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isVoting, setIsVoting] = useState(false);
   const [voteCount, setVoteCount] = useState(0);
 
-  const fetchMatchup = useCallback(async () => {
-    setIsLoading(true);
+  const {
+    currentMatchup,
+    userFlagId,
+    isLoading,
+    advance,
+    fetchMatchups,
+    updateCurrentStats,
+  } = useMatchupQueue();
+
+  const { addVote, flush, retryFailed, clearError, state: voteQueueState } = useVoteQueue();
+
+  // Advance to next matchup
+  const advanceToNext = useCallback(() => {
     setResult(null);
     setSelectedId(null);
+    advance();
+  }, [advance]);
 
-    try {
-      const recentPairs = getRecentPairs();
-      const excludeIds = recentPairs.flatMap((p) => p.split("-").map(Number));
-      const uniqueExclude = [...new Set(excludeIds)].slice(-10);
-
-      const res = await fetch(
-        `/api/matchup${uniqueExclude.length ? `?exclude=${uniqueExclude.join(",")}` : ""}`
-      );
-      if (!res.ok) throw new Error("Failed to fetch matchup");
-      const data = await res.json();
-      setMatchup(data);
-    } catch (error) {
-      console.error("Error fetching matchup:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
+  // Vote handler with optimistic updates
   const vote = useCallback(
-    async (winnerId: number) => {
-      if (!matchup || isVoting || result) return;
+    (winnerId: number) => {
+      if (!currentMatchup || result) return;
+
+      const loserId = winnerId === currentMatchup.a.id ? currentMatchup.b.id : currentMatchup.a.id;
+
+      // Check if this matchup involves the user's own flag
+      const involvesUserFlag =
+        userFlagId !== null &&
+        (currentMatchup.a.id === userFlagId || currentMatchup.b.id === userFlagId);
+
+      // Only send to server if it doesn't involve user's flag
+      if (!involvesUserFlag) {
+        addVote(winnerId, loserId);
+      }
+
+      // Always record personal vote in localStorage
+      recordPersonalVote(winnerId, loserId);
+
+      // Calculate optimistic stats
+      const [minId] = currentMatchup.matchupId.split("-").map(Number);
+      const winnerIsA = winnerId === minId;
+      const newAVotes = currentMatchup.stats.aVotes + (winnerIsA ? 1 : 0);
+      const newBVotes = currentMatchup.stats.bVotes + (winnerIsA ? 0 : 1);
+      const newN = currentMatchup.stats.n + 1;
+
+      // Update the matchup's stats for future reference
+      updateCurrentStats({ aVotes: newAVotes, bVotes: newBVotes, n: newN });
+
+      // Calculate percentages
+      const aPct = newN > 0 ? Math.round((newAVotes / newN) * 100) : 50;
+      const bPct = newN > 0 ? Math.round((newBVotes / newN) * 100) : 50;
 
       setSelectedId(winnerId);
-      setIsVoting(true);
-
-      const loserId = winnerId === matchup.a.id ? matchup.b.id : matchup.a.id;
-
-      try {
-        const res = await fetch("/api/vote", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ winnerId, loserId }),
-        });
-
-        if (!res.ok) throw new Error("Failed to record vote");
-
-        const data = await res.json();
-        setResult(data);
-        setVoteCount((c) => c + 1);
-        addRecentPair(matchup.matchupId);
-      } catch (error) {
-        console.error("Error voting:", error);
-        setSelectedId(null);
-      } finally {
-        setIsVoting(false);
-      }
+      setResult({
+        aName: currentMatchup.a.country_name,
+        bName: currentMatchup.b.country_name,
+        aPct: currentMatchup.a.id === minId ? aPct : bPct,
+        bPct: currentMatchup.b.id === minId ? aPct : bPct,
+        n: newN,
+        winnerId,
+      });
+      setVoteCount((c) => c + 1);
     },
-    [matchup, isVoting, result]
+    [currentMatchup, result, userFlagId, addVote, updateCurrentStats]
   );
 
   // Keyboard support
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!matchup) return;
-
-      if (!result) {
-        if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") {
-          vote(matchup.a.id);
-        } else if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") {
-          vote(matchup.b.id);
-        }
-      } else {
-        if (e.key === "Enter" || e.key === " " || e.key === "ArrowRight") {
-          e.preventDefault();
-          fetchMatchup();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [matchup, result, vote, fetchMatchup]);
+  useVotingKeyboard({
+    onVoteLeft: () => currentMatchup && vote(currentMatchup.a.id),
+    onVoteRight: () => currentMatchup && vote(currentMatchup.b.id),
+    onAdvance: advanceToNext,
+    isResultShown: !!result,
+    disabled: !currentMatchup,
+  });
 
   // Initial load
   useEffect(() => {
-    fetchMatchup();
-  }, [fetchMatchup]);
+    fetchMatchups();
+  }, [fetchMatchups]);
 
   // Auto-advance after 4 seconds when results are shown
   useEffect(() => {
     if (!result) return;
 
     const timer = setTimeout(() => {
-      fetchMatchup();
+      advanceToNext();
     }, 4000);
 
     return () => clearTimeout(timer);
-  }, [result, fetchMatchup]);
+  }, [result, advanceToNext]);
 
-  if (isLoading && !matchup) {
+  // Flush votes on visibility change and page unload
+  usePageVisibility(() => flush(true));
+
+  // Flush any remaining votes on unmount
+  useEffect(() => {
+    return () => {
+      flush();
+    };
+  }, [flush]);
+
+  if (isLoading && !currentMatchup) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <Loader2 className="w-8 h-8 animate-spin text-pop" />
-        <p className="text-ink-light font-medium">Loading matchup...</p>
+        <p className="text-ink-light font-medium">Loading matchups...</p>
       </div>
     );
   }
 
-  if (!matchup) {
+  if (!currentMatchup) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 max-w-md mx-auto text-center px-4">
         <div className="text-6xl">🏁</div>
         <div>
           <h2 className="text-xl font-bold mb-2">Database Not Connected</h2>
           <p className="text-ink-light">
-            The AWS PostgreSQL database only works when deployed to Vercel.
-            Visit the production site to play!
+            The AWS PostgreSQL database only works when deployed to Vercel. Visit the production
+            site to play!
           </p>
         </div>
         <div className="flex gap-3">
-          <Button onClick={fetchMatchup} variant="outline">
+          <Button onClick={fetchMatchups} variant="outline">
             Retry
           </Button>
           <Button asChild>
@@ -183,13 +154,13 @@ export function VotingScreen() {
   }
 
   // Determine which flag is A based on the matchupId
-  const [minId] = matchup.matchupId.split("-").map(Number);
+  const [minId] = currentMatchup.matchupId.split("-").map(Number);
   const aId = minId;
 
   // Get country names - only show after voting
-  const getCountryName = (flag: typeof matchup.a) => {
+  const getCountryName = (flag: typeof currentMatchup.a) => {
     if (result) {
-      return flag.id === aId ? result.pairing.aName : result.pairing.bName;
+      return flag.country_name;
     }
     return undefined;
   };
@@ -198,11 +169,13 @@ export function VotingScreen() {
     <div className="w-full max-w-4xl mx-auto px-4">
       {/* Question prompt */}
       <div className="text-center mb-4 sm:mb-12">
-        <h2 className="text-xl sm:text-3xl md:text-4xl font-bold">
-          Which flag is better?
-        </h2>
+        <h2 className="text-xl sm:text-3xl md:text-4xl font-bold">Which flag is better?</h2>
         {voteCount > 0 && (
-          <p className="mt-1 sm:mt-2 text-xs sm:text-sm text-ink-light">
+          <p
+            className="mt-1 sm:mt-2 text-xs sm:text-sm text-ink-light"
+            aria-live="polite"
+            aria-atomic="true"
+          >
             You&apos;ve voted {voteCount} time{voteCount !== 1 ? "s" : ""} this session
           </p>
         )}
@@ -211,90 +184,92 @@ export function VotingScreen() {
       {/* Flag cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-8 mb-4 sm:mb-8">
         <FlagCard
-          id={matchup.a.id}
-          svgUrl={matchup.a.svg_url}
-          countryName={getCountryName(matchup.a)}
-          isSelected={selectedId === matchup.a.id}
+          id={currentMatchup.a.id}
+          svgUrl={currentMatchup.a.svg_url}
+          countryName={getCountryName(currentMatchup.a)}
+          isSelected={selectedId === currentMatchup.a.id}
           isRevealed={!!result}
-          isWinner={selectedId === matchup.a.id && !!result}
-          onClick={() => vote(matchup.a.id)}
+          isWinner={selectedId === currentMatchup.a.id && !!result}
+          onClick={() => vote(currentMatchup.a.id)}
           keyHint={!result ? "←" : undefined}
           className="animate-pop-in"
+          position="left"
         />
         <FlagCard
-          id={matchup.b.id}
-          svgUrl={matchup.b.svg_url}
-          countryName={getCountryName(matchup.b)}
-          isSelected={selectedId === matchup.b.id}
+          id={currentMatchup.b.id}
+          svgUrl={currentMatchup.b.svg_url}
+          countryName={getCountryName(currentMatchup.b)}
+          isSelected={selectedId === currentMatchup.b.id}
           isRevealed={!!result}
-          isWinner={selectedId === matchup.b.id && !!result}
-          onClick={() => vote(matchup.b.id)}
+          isWinner={selectedId === currentMatchup.b.id && !!result}
+          onClick={() => vote(currentMatchup.b.id)}
           keyHint={!result ? "→" : undefined}
           className="animate-pop-in delay-1"
+          mobileNameAbove
+          position="right"
         />
       </div>
-
-      {/* Voting indicator */}
-      {isVoting && (
-        <div className="flex justify-center mb-4">
-          <Loader2 className="w-5 h-5 animate-spin text-pop" />
-        </div>
-      )}
 
       {/* Results - Modal on mobile, inline card on desktop */}
       {result && (
         <>
-          {/* Mobile: Tap anywhere overlay + Bottom sheet */}
+          {/* Mobile: Bottom sheet dialog */}
           <div
-            className="sm:hidden fixed inset-0 z-40"
-            onClick={fetchMatchup}
-          />
-          <div
-            className="sm:hidden fixed inset-x-0 bottom-0 z-50 p-3 pb-6 animate-sheet-up"
-            onClick={fetchMatchup}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="results-heading-mobile"
+            className="sm:hidden fixed inset-0 z-40 flex flex-col justify-end"
           >
-            <div className="sticker-card p-4 w-full max-w-sm mx-auto">
-              <div className="w-10 h-1 bg-ink/20 rounded-full mx-auto mb-3" />
-              <h3 className="text-sm font-bold text-center mb-3">
-                Community Results
-              </h3>
+            {/* Backdrop */}
+            <div
+              className="absolute inset-0 -z-10"
+              onClick={advanceToNext}
+              aria-hidden="true"
+            />
+            <div className="p-3 pb-6 animate-sheet-up">
+              <div className="sticker-card p-4 w-full">
+                <div
+                  className="w-10 h-1 bg-ink/20 rounded-full mx-auto mb-3"
+                  aria-hidden="true"
+                />
+                <h3 id="results-heading-mobile" className="text-sm font-bold text-center mb-3">
+                  Global Results
+                </h3>
 
-              <ResultsDisplay
-                leftName={matchup.a.id === aId ? result.pairing.aName : result.pairing.bName}
-                rightName={matchup.b.id === aId ? result.pairing.aName : result.pairing.bName}
-                leftPct={matchup.a.id === aId ? result.pairing.aPct : result.pairing.bPct}
-                rightPct={matchup.b.id === aId ? result.pairing.aPct : result.pairing.bPct}
-                leftIsWinner={selectedId === matchup.a.id}
-                n={result.pairing.n}
-              />
+                <ResultsDisplay
+                  leftName={currentMatchup.a.id === aId ? result.aName : result.bName}
+                  rightName={currentMatchup.b.id === aId ? result.aName : result.bName}
+                  leftPct={currentMatchup.a.id === aId ? result.aPct : result.bPct}
+                  rightPct={currentMatchup.b.id === aId ? result.aPct : result.bPct}
+                  leftIsWinner={selectedId === currentMatchup.a.id}
+                  n={result.n}
+                />
 
-              <p className="text-center text-xs text-ink-light mt-3">
-                Tap to continue
-              </p>
+                <button
+                  onClick={advanceToNext}
+                  className="w-full text-center text-xs text-ink-light mt-3 py-2 hover:text-ink transition-colors"
+                >
+                  Tap to continue
+                </button>
+              </div>
             </div>
           </div>
 
           {/* Desktop: Inline card */}
           <div className="hidden sm:block sticker-card p-5 max-w-sm mx-auto animate-slide-up">
-            <h3 className="text-base font-bold text-center mb-3">
-              Community Results
-            </h3>
+            <h3 className="text-base font-bold text-center mb-3">Global Results</h3>
 
             <ResultsDisplay
-              leftName={matchup.a.id === aId ? result.pairing.aName : result.pairing.bName}
-              rightName={matchup.b.id === aId ? result.pairing.aName : result.pairing.bName}
-              leftPct={matchup.a.id === aId ? result.pairing.aPct : result.pairing.bPct}
-              rightPct={matchup.b.id === aId ? result.pairing.aPct : result.pairing.bPct}
-              leftIsWinner={selectedId === matchup.a.id}
-              n={result.pairing.n}
+              leftName={currentMatchup.a.id === aId ? result.aName : result.bName}
+              rightName={currentMatchup.b.id === aId ? result.aName : result.bName}
+              leftPct={currentMatchup.a.id === aId ? result.aPct : result.bPct}
+              rightPct={currentMatchup.b.id === aId ? result.aPct : result.bPct}
+              leftIsWinner={selectedId === currentMatchup.a.id}
+              n={result.n}
             />
 
             <div className="mt-4 flex justify-center">
-              <Button
-                onClick={fetchMatchup}
-                className="gap-2 font-bold"
-                size="sm"
-              >
+              <Button onClick={advanceToNext} className="gap-2 font-bold" size="sm">
                 Next Matchup
                 <ArrowRight className="w-4 h-4" />
               </Button>
@@ -306,6 +281,16 @@ export function VotingScreen() {
             </p>
           </div>
         </>
+      )}
+
+      {/* Error toast for failed votes */}
+      {voteQueueState.lastError && voteQueueState.failed > 0 && (
+        <VoteErrorToast
+          message={voteQueueState.lastError}
+          failedCount={voteQueueState.failed}
+          onRetry={retryFailed}
+          onDismiss={clearError}
+        />
       )}
     </div>
   );

@@ -8,7 +8,7 @@ A web game where users vote on which national flag is better designed. Compare f
 
 - **Zero friction voting** - No sign-up required, just tap and vote
 - **193 UN member flags** - Compare flags from around the world
-- **Community results** - See how your taste compares to others
+- **Global results** - See how your taste compares to others
 - **Bayesian-smoothed rankings** - Leaderboard accounts for sample size
 - **Country exclusion** - Your own country's flag is excluded (via IP geolocation)
 - **Keyboard support** - Use arrow keys for rapid voting on desktop

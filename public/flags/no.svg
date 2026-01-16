@@ -1,7 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" id="flag-icons-no" viewBox="0 0 640 480">
-  <path fill="#ed2939" d="M0 0h640v480H0z"/>
-  <path fill="#fff" d="M180 0h120v480H180z"/>
-  <path fill="#fff" d="M0 180h640v120H0z"/>
-  <path fill="#002664" d="M210 0h60v480h-60z"/>
-  <path fill="#002664" d="M0 210h640v60H0z"/>
-</svg>
+<svg width="640" height="480" viewBox="0 0 640 480" fill="none" xmlns="http://www.w3.org/2000/svg"><g clip-path="url(#clip0_112_308)"><path d="M0 0H640V480H0V0Z" fill="#ED2939"/><path d="M300 180H640V300H300V480H180V300H0V180H180V0H300V180Z" fill="#fff"/><path d="M270 210H640V270H270V480H210V270H0V210H210V0H270V210Z" fill="#002664"/></g><defs><clipPath id="clip0_112_308"><rect width="640" height="480" fill="#fff"/></clipPath></defs></svg>

@@ -13,6 +13,8 @@ interface FlagCardProps {
   onClick?: () => void;
   keyHint?: string;
   className?: string;
+  mobileNameAbove?: boolean;
+  position?: "left" | "right";
 }
 
 export function FlagCard({
@@ -24,6 +26,8 @@ export function FlagCard({
   onClick,
   keyHint,
   className,
+  mobileNameAbove = false,
+  position,
 }: FlagCardProps) {
   return (
     <button
@@ -36,24 +40,45 @@ export function FlagCard({
         !isSelected && "focus-visible:ring-2 focus-visible:ring-pop focus-visible:ring-offset-2",
         "disabled:cursor-default disabled:hover:transform-none disabled:hover:shadow-[4px_4px_0_0_var(--ink),0_8px_24px_-8px_oklch(0.3_0.02_60_/_0.15)]",
         isSelected && "selected ring-0 ring-offset-0",
+        isRevealed && !isSelected && "unselected",
         className
       )}
     >
+      {/* Country name above flag - mobile only when mobileNameAbove */}
+      {mobileNameAbove && isRevealed && countryName && (
+        <div className="sm:hidden mb-3 h-7 flex items-center justify-center">
+          <span
+            className={cn(
+              "text-base font-bold text-center animate-pop-in",
+              isWinner && "text-pop"
+            )}
+          >
+            {countryName}
+          </span>
+        </div>
+      )}
+
       {/* Flag image container */}
       <div className="relative w-full aspect-[4/3] overflow-hidden rounded-lg shadow-lg shadow-ink/10">
         <Image
           src={svgUrl}
-          alt={isRevealed && countryName ? `Flag of ${countryName}` : "Flag"}
+          alt={
+            isRevealed && countryName
+              ? `Flag of ${countryName}`
+              : position
+                ? `${position === "left" ? "Left" : "Right"} flag option`
+                : "Flag"
+          }
           fill
-          className="object-cover"
+          className="object-cover saturate-[1.1]"
           priority
         />
       </div>
 
-      {/* Country name - hidden until revealed, completely hidden on mobile pre-vote */}
+      {/* Country name below flag - hidden on mobile when mobileNameAbove */}
       <div className={cn(
         "mt-3 sm:mt-4 h-7 sm:h-8 items-center justify-center",
-        isRevealed ? "flex" : "hidden sm:flex"
+        mobileNameAbove ? "hidden sm:flex" : (isRevealed ? "flex" : "hidden sm:flex")
       )}>
         {isRevealed && countryName ? (
           <span
@@ -69,7 +94,10 @@ export function FlagCard({
             {keyHint ? (
               /* Desktop only: show keyboard hint */
               <span className="flex items-center gap-2">
-                Press <span className="kbd-hint">{keyHint}</span>
+                Press{" "}
+                <kbd className="kbd-hint" aria-label={keyHint === "←" ? "left arrow" : "right arrow"}>
+                  {keyHint}
+                </kbd>
               </span>
             ) : null}
           </span>

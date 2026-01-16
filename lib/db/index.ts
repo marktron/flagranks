@@ -2,9 +2,11 @@ import { Signer } from "@aws-sdk/rds-signer";
 import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 import { Pool, QueryResult, QueryResultRow } from "pg";
 import { UN_MEMBER_FLAGS } from "./seed-data";
+import { SMOOTHING_K, calculateSmoothedScore, calculateRawWinPct } from "@/lib/scoring";
 
-// Bayesian smoothing constant
-const SMOOTHING_K = 10;
+// Re-export types for backward compatibility
+export type { Flag, FlagWithStats, PairingStats } from "@/lib/types";
+import type { Flag, FlagWithStats, PairingStats } from "@/lib/types";
 
 // Check if we're running on Vercel (has proper AWS IAM auth via OIDC)
 const isVercel = process.env.VERCEL === "1";
@@ -68,38 +70,21 @@ async function query<T extends QueryResultRow = QueryResultRow>(
   return pool.query<T>(text, params);
 }
 
-export interface Flag {
-  id: number;
-  country_name: string;
-  iso2: string;
-  svg_url: string;
-  is_active: boolean;
-}
+// Re-export calculateSmoothedScore for backward compatibility
+export { calculateSmoothedScore, calculateRawWinPct } from "@/lib/scoring";
 
-export interface FlagWithStats extends Flag {
-  wins: number;
-  losses: number;
-  games: number;
-  smoothed_score: number;
-  raw_win_pct: number;
-}
-
-export interface PairingStats {
-  a_votes: number;
-  b_votes: number;
-  n_total: number;
-  a_pct: number;
-  b_pct: number;
-}
-
-// Calculate smoothed score using Bayesian smoothing
-export function calculateSmoothedScore(wins: number, games: number): number {
-  return (wins + SMOOTHING_K * 0.5) / (games + SMOOTHING_K);
-}
-
-// Get a random matchup, prioritizing under-sampled flags
-export async function getMatchup(excludeIds: number[] = []) {
-  // Get flags with their game counts, prioritizing those with fewer games
+// Get multiple matchups at once with their current pairing stats
+export async function getMatchups(
+  count: number = 10,
+  excludeIds: number[] = []
+): Promise<
+  Array<{
+    flagA: { id: number; country_name: string; svg_url: string };
+    flagB: { id: number; country_name: string; svg_url: string };
+    stats: { aVotes: number; bVotes: number; n: number };
+  }>
+> {
+  // Get more flags to ensure we have enough for multiple unique matchups
   const result = await query<{
     id: number;
     country_name: string;
@@ -113,140 +98,192 @@ export async function getMatchup(excludeIds: number[] = []) {
      LEFT JOIN flag_stats fs ON f.id = fs.flag_id
      WHERE f.is_active = true
      ORDER BY COALESCE(fs.games, 0) ASC, RANDOM()
-     LIMIT 50`
+     LIMIT 100`
   );
 
-  // Filter out excluded flags (e.g., user's own country)
+  // Filter out excluded flags
   const flags = result.rows.filter((f) => !excludeIds.includes(f.id));
   if (flags.length < 2) {
     throw new Error("Not enough flags in database");
   }
 
-  // Pick flag_a from bottom quartile (under-sampled)
-  const bottomQuartile = flags.slice(0, Math.max(Math.ceil(flags.length / 4), 2));
-  const flagA = bottomQuartile[Math.floor(Math.random() * bottomQuartile.length)];
+  const matchups: Array<{
+    flagA: { id: number; country_name: string; svg_url: string };
+    flagB: { id: number; country_name: string; svg_url: string };
+    stats: { aVotes: number; bVotes: number; n: number };
+  }> = [];
 
-  // Pick flag_b randomly from remaining flags
-  const remaining = flags.filter((f) => f.id !== flagA.id);
+  const usedPairs = new Set<string>();
 
-  if (remaining.length === 0) {
-    throw new Error("Not enough flags for matchup");
+  // Generate unique matchups
+  for (let i = 0; i < count && flags.length >= 2; i++) {
+    let attempts = 0;
+    let flagA: (typeof flags)[0] | null = null;
+    let flagB: (typeof flags)[0] | null = null;
+
+    while (attempts < 50) {
+      // Pick flagA from bottom quartile (under-sampled)
+      const bottomQuartile = flags.slice(0, Math.max(Math.ceil(flags.length / 4), 2));
+      flagA = bottomQuartile[Math.floor(Math.random() * bottomQuartile.length)];
+
+      // Pick flagB randomly from remaining flags
+      const remaining = flags.filter((f) => f.id !== flagA!.id);
+      flagB = remaining[Math.floor(Math.random() * remaining.length)];
+
+      // Check if pair is unique
+      const pairKey = [flagA.id, flagB.id].sort((a, b) => a - b).join("-");
+      if (!usedPairs.has(pairKey)) {
+        usedPairs.add(pairKey);
+        break;
+      }
+      attempts++;
+    }
+
+    if (!flagA || !flagB) continue;
+
+    // Randomize order
+    if (Math.random() > 0.5) {
+      [flagA, flagB] = [flagB, flagA];
+    }
+
+    matchups.push({
+      flagA: { id: flagA.id, country_name: flagA.country_name, svg_url: flagA.svg_url },
+      flagB: { id: flagB.id, country_name: flagB.country_name, svg_url: flagB.svg_url },
+      stats: { aVotes: 0, bVotes: 0, n: 0 }, // Will be filled below
+    });
   }
 
-  const flagB = remaining[Math.floor(Math.random() * remaining.length)];
+  // Fetch pairing stats for all matchups in one query
+  if (matchups.length > 0) {
+    const pairingIds = matchups.map((m) => {
+      const minId = Math.min(m.flagA.id, m.flagB.id);
+      const maxId = Math.max(m.flagA.id, m.flagB.id);
+      return `${minId}-${maxId}`;
+    });
 
-  // Randomize order so flag_a isn't always on left
-  if (Math.random() > 0.5) {
-    return { flagA: flagB, flagB: flagA };
+    const statsResult = await query<{
+      pairing_id: string;
+      a_votes: number;
+      b_votes: number;
+      n_total: number;
+    }>(
+      `SELECT pairing_id, a_votes, b_votes, n_total
+       FROM votes_agg_pairings
+       WHERE pairing_id = ANY($1)`,
+      [pairingIds]
+    );
+
+    const statsMap = new Map(statsResult.rows.map((r) => [r.pairing_id, r]));
+
+    // Fill in stats for each matchup
+    for (const matchup of matchups) {
+      const minId = Math.min(matchup.flagA.id, matchup.flagB.id);
+      const maxId = Math.max(matchup.flagA.id, matchup.flagB.id);
+      const pairingId = `${minId}-${maxId}`;
+      const stats = statsMap.get(pairingId);
+
+      if (stats) {
+        // Map a/b votes to flagA/flagB based on which is minId
+        const flagAIsMin = matchup.flagA.id === minId;
+        matchup.stats = {
+          aVotes: flagAIsMin ? stats.a_votes : stats.b_votes,
+          bVotes: flagAIsMin ? stats.b_votes : stats.a_votes,
+          n: stats.n_total,
+        };
+      }
+    }
   }
 
-  return { flagA, flagB };
+  return matchups;
 }
 
-// Record a vote and return updated stats
-export async function recordVote(
-  winnerId: number,
-  loserId: number
-): Promise<{
-  pairing: PairingStats;
-  winner: { id: number; country_name: string; smoothed_score: number };
-  loser: { id: number; country_name: string; smoothed_score: number };
-}> {
-  // Create pairing ID (always minId-maxId for consistency)
-  const minId = Math.min(winnerId, loserId);
-  const maxId = Math.max(winnerId, loserId);
-  const pairingId = `${minId}-${maxId}`;
-  const winnerIsA = winnerId === minId;
+// Record multiple votes efficiently using a single batch query
+export async function recordVotes(
+  votes: Array<{ winnerId: number; loserId: number }>
+): Promise<{ processed: number }> {
+  if (votes.length === 0) return { processed: 0 };
 
-  // Upsert pairing votes
-  if (winnerIsA) {
-    await query(
-      `INSERT INTO votes_agg_pairings (pairing_id, a_id, b_id, a_votes, b_votes, n_total, updated_at)
-       VALUES ($1, $2, $3, 1, 0, 1, NOW())
-       ON CONFLICT (pairing_id) DO UPDATE SET
-         a_votes = votes_agg_pairings.a_votes + 1,
-         n_total = votes_agg_pairings.n_total + 1,
-         updated_at = NOW()`,
-      [pairingId, minId, maxId]
-    );
-  } else {
-    await query(
-      `INSERT INTO votes_agg_pairings (pairing_id, a_id, b_id, a_votes, b_votes, n_total, updated_at)
-       VALUES ($1, $2, $3, 0, 1, 1, NOW())
-       ON CONFLICT (pairing_id) DO UPDATE SET
-         b_votes = votes_agg_pairings.b_votes + 1,
-         n_total = votes_agg_pairings.n_total + 1,
-         updated_at = NOW()`,
-      [pairingId, minId, maxId]
-    );
+  // Prepare arrays for UNNEST
+  const pairingIds: string[] = [];
+  const aIds: number[] = [];
+  const bIds: number[] = [];
+  const aIncrements: number[] = [];
+  const bIncrements: number[] = [];
+  const winnerIds: number[] = [];
+  const loserIds: number[] = [];
+
+  for (const vote of votes) {
+    const minId = Math.min(vote.winnerId, vote.loserId);
+    const maxId = Math.max(vote.winnerId, vote.loserId);
+    pairingIds.push(`${minId}-${maxId}`);
+    aIds.push(minId);
+    bIds.push(maxId);
+    aIncrements.push(vote.winnerId === minId ? 1 : 0);
+    bIncrements.push(vote.winnerId === maxId ? 1 : 0);
+    winnerIds.push(vote.winnerId);
+    loserIds.push(vote.loserId);
   }
 
-  // Update winner stats
+  // Single query using CTEs to batch all operations
   await query(
-    `INSERT INTO flag_stats (flag_id, wins, losses, games, updated_at)
-     VALUES ($1, 1, 0, 1, NOW())
-     ON CONFLICT (flag_id) DO UPDATE SET
-       wins = flag_stats.wins + 1,
-       games = flag_stats.games + 1,
-       updated_at = NOW()`,
-    [winnerId]
+    `
+    WITH vote_data AS (
+      SELECT
+        unnest($1::text[]) as pairing_id,
+        unnest($2::int[]) as a_id,
+        unnest($3::int[]) as b_id,
+        unnest($4::int[]) as a_increment,
+        unnest($5::int[]) as b_increment,
+        unnest($6::int[]) as winner_id,
+        unnest($7::int[]) as loser_id
+    ),
+    -- Aggregate increments per pairing (handles duplicate pairings in batch)
+    pairing_agg AS (
+      SELECT
+        pairing_id,
+        a_id,
+        b_id,
+        SUM(a_increment)::int as total_a_inc,
+        SUM(b_increment)::int as total_b_inc,
+        COUNT(*)::int as total_n
+      FROM vote_data
+      GROUP BY pairing_id, a_id, b_id
+    ),
+    -- Upsert pairing stats
+    upsert_pairings AS (
+      INSERT INTO votes_agg_pairings (pairing_id, a_id, b_id, a_votes, b_votes, n_total, updated_at)
+      SELECT pairing_id, a_id, b_id, total_a_inc, total_b_inc, total_n, NOW()
+      FROM pairing_agg
+      ON CONFLICT (pairing_id) DO UPDATE SET
+        a_votes = votes_agg_pairings.a_votes + EXCLUDED.a_votes,
+        b_votes = votes_agg_pairings.b_votes + EXCLUDED.b_votes,
+        n_total = votes_agg_pairings.n_total + EXCLUDED.n_total,
+        updated_at = NOW()
+    ),
+    -- Aggregate flag stats (wins/losses per flag)
+    flag_agg AS (
+      SELECT flag_id, SUM(wins)::int as wins, SUM(losses)::int as losses
+      FROM (
+        SELECT winner_id as flag_id, 1 as wins, 0 as losses FROM vote_data
+        UNION ALL
+        SELECT loser_id as flag_id, 0 as wins, 1 as losses FROM vote_data
+      ) sub
+      GROUP BY flag_id
+    )
+    -- Upsert flag stats
+    INSERT INTO flag_stats (flag_id, wins, losses, games, updated_at)
+    SELECT flag_id, wins, losses, wins + losses, NOW()
+    FROM flag_agg
+    ON CONFLICT (flag_id) DO UPDATE SET
+      wins = flag_stats.wins + EXCLUDED.wins,
+      losses = flag_stats.losses + EXCLUDED.losses,
+      games = flag_stats.games + EXCLUDED.games,
+      updated_at = NOW()
+    `,
+    [pairingIds, aIds, bIds, aIncrements, bIncrements, winnerIds, loserIds]
   );
 
-  // Update loser stats
-  await query(
-    `INSERT INTO flag_stats (flag_id, wins, losses, games, updated_at)
-     VALUES ($1, 0, 1, 1, NOW())
-     ON CONFLICT (flag_id) DO UPDATE SET
-       losses = flag_stats.losses + 1,
-       games = flag_stats.games + 1,
-       updated_at = NOW()`,
-    [loserId]
-  );
-
-  // Get updated pairing stats
-  const pairingResult = await query<{ a_votes: number; b_votes: number; n_total: number }>(
-    `SELECT a_votes, b_votes, n_total FROM votes_agg_pairings WHERE pairing_id = $1`,
-    [pairingId]
-  );
-  const pairing = pairingResult.rows[0];
-  const pairingStats: PairingStats = {
-    a_votes: pairing.a_votes,
-    b_votes: pairing.b_votes,
-    n_total: pairing.n_total,
-    a_pct: Math.round((pairing.a_votes / pairing.n_total) * 100),
-    b_pct: Math.round((pairing.b_votes / pairing.n_total) * 100),
-  };
-
-  // Get updated flag stats
-  const flagsResult = await query<{
-    id: number;
-    country_name: string;
-    wins: number;
-    games: number;
-  }>(
-    `SELECT f.id, f.country_name, COALESCE(fs.wins, 0) as wins, COALESCE(fs.games, 0) as games
-     FROM flags f
-     LEFT JOIN flag_stats fs ON f.id = fs.flag_id
-     WHERE f.id = $1 OR f.id = $2`,
-    [winnerId, loserId]
-  );
-
-  const winner = flagsResult.rows.find((f) => f.id === winnerId)!;
-  const loser = flagsResult.rows.find((f) => f.id === loserId)!;
-
-  return {
-    pairing: pairingStats,
-    winner: {
-      id: winner.id,
-      country_name: winner.country_name,
-      smoothed_score: calculateSmoothedScore(winner.wins, winner.games),
-    },
-    loser: {
-      id: loser.id,
-      country_name: loser.country_name,
-      smoothed_score: calculateSmoothedScore(loser.wins, loser.games),
-    },
-  };
+  return { processed: votes.length };
 }
 
 // Get leaderboard
