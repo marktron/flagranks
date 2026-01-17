@@ -3,6 +3,7 @@ import type { Matchup } from "@/lib/types";
 
 const BATCH_SIZE = 10;
 const REFILL_THRESHOLD = 5;
+const MAX_SEEN_IDS = 100;
 
 export function useMatchupQueue(initialMatchups?: Matchup[]) {
   // Initialize with SSR data if provided
@@ -11,6 +12,10 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
   const [isLoading, setIsLoading] = useState(!initialMatchups?.length);
   const isFetchingRef = useRef(false);
   const userFlagIdRef = useRef<number | null>(null);
+  // Track recently seen matchup IDs to filter duplicates
+  const seenIdsRef = useRef<Set<string>>(
+    new Set(initialMatchups?.map((m) => m.matchupId))
+  );
 
   const fetchMatchups = useCallback(async () => {
     if (isFetchingRef.current) return;
@@ -27,7 +32,18 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
         userFlagIdRef.current = data.userFlagId;
       }
 
-      setQueue((prev) => [...prev, ...data.matchups]);
+      // Filter out recently seen matchups
+      const newMatchups = data.matchups.filter(
+        (m) => !seenIdsRef.current.has(m.matchupId)
+      );
+      // Add new matchup IDs to seen set
+      newMatchups.forEach((m) => seenIdsRef.current.add(m.matchupId));
+      // Trim set if it gets too large
+      if (seenIdsRef.current.size > MAX_SEEN_IDS) {
+        const entries = Array.from(seenIdsRef.current);
+        seenIdsRef.current = new Set(entries.slice(-MAX_SEEN_IDS));
+      }
+      setQueue((prev) => [...prev, ...newMatchups]);
     } catch (error) {
       console.error("Error fetching matchups:", error);
     } finally {
