@@ -4,6 +4,8 @@ import type { Matchup } from "@/lib/types";
 const BATCH_SIZE = 10;
 const REFILL_THRESHOLD = 5;
 const MAX_SEEN_IDS = 100;
+const MIN_NEW_MATCHUPS = 3;
+const MAX_RETRIES = 5;
 
 export function useMatchupQueue(initialMatchups?: Matchup[]) {
   // Initialize with SSR data if provided
@@ -11,6 +13,8 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
   // Not loading if we have initial data
   const [isLoading, setIsLoading] = useState(!initialMatchups?.length);
   const [isFetching, setIsFetching] = useState(false);
+  const isFetchingRef = useRef(false);
+  const retryCountRef = useRef(0);
   const userFlagIdRef = useRef<number | null>(null);
   // Track recently seen matchup IDs to filter duplicates
   const seenIdsRef = useRef<Set<string>>(
@@ -18,8 +22,11 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
   );
 
   const fetchMatchups = useCallback(async () => {
-    if (isFetching) return;
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     setIsFetching(true);
+
+    let needsRetry = false;
 
     try {
       const res = await fetch(`/api/matchups?count=${BATCH_SIZE}`);
@@ -44,24 +51,38 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
         seenIdsRef.current = new Set(entries.slice(-MAX_SEEN_IDS));
       }
       setQueue((prev) => [...prev, ...newMatchups]);
+
+      // If too many were filtered out, fetch again (with retry limit)
+      if (newMatchups.length < MIN_NEW_MATCHUPS && retryCountRef.current < MAX_RETRIES) {
+        retryCountRef.current++;
+        needsRetry = true;
+      } else {
+        retryCountRef.current = 0;
+      }
     } catch (error) {
       console.error("Error fetching matchups:", error);
+      retryCountRef.current = 0;
     } finally {
+      isFetchingRef.current = false;
       setIsFetching(false);
       setIsLoading(false);
     }
-  }, [isFetching]);
+
+    if (needsRetry) {
+      fetchMatchups();
+    }
+  }, []);
 
   const advance = useCallback(() => {
     setQueue((prev) => {
       const next = prev.slice(1);
       // Trigger refill if running low
-      if (next.length < REFILL_THRESHOLD && !isFetching) {
+      if (next.length < REFILL_THRESHOLD && !isFetchingRef.current) {
         fetchMatchups();
       }
       return next;
     });
-  }, [fetchMatchups, isFetching]);
+  }, [fetchMatchups]);
 
   const currentMatchup = queue[0] ?? null;
   const userFlagId = userFlagIdRef.current;
