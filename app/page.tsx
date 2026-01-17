@@ -5,7 +5,7 @@ import { generateInitialMatchups } from "@/lib/matchups/generate-initial";
 export const revalidate = 60;
 
 export default async function Home() {
-  const initialMatchups = await generateInitialMatchups(10);
+  const initialMatchups = await generateInitialMatchups(50);
 
   return (
     <div className="py-8 sm:py-12 md:py-16">

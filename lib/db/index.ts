@@ -97,7 +97,7 @@ export async function getMatchups(
      FROM flags f
      LEFT JOIN flag_stats fs ON f.id = fs.flag_id
      WHERE f.is_active = true
-     ORDER BY COALESCE(fs.games, 0) ASC, RANDOM()
+     ORDER BY RANDOM()
      LIMIT 100`
   );
 
@@ -122,15 +122,15 @@ export async function getMatchups(
     let flagB: (typeof flags)[0] | null = null;
 
     while (attempts < 50) {
-      // Pick flagA from bottom quartile (under-sampled)
-      const bottomQuartile = flags.slice(0, Math.max(Math.ceil(flags.length / 4), 2));
-      flagA = bottomQuartile[Math.floor(Math.random() * bottomQuartile.length)];
+      // Pick two random flags
+      const idxA = Math.floor(Math.random() * flags.length);
+      let idxB = Math.floor(Math.random() * (flags.length - 1));
+      if (idxB >= idxA) idxB++; // Ensure different indices
 
-      // Pick flagB randomly from remaining flags
-      const remaining = flags.filter((f) => f.id !== flagA!.id);
-      flagB = remaining[Math.floor(Math.random() * remaining.length)];
+      flagA = flags[idxA];
+      flagB = flags[idxB];
 
-      // Check if pair is unique
+      // Check if pair is unique within this batch
       const pairKey = [flagA.id, flagB.id].sort((a, b) => a - b).join("-");
       if (!usedPairs.has(pairKey)) {
         usedPairs.add(pairKey);

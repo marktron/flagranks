@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Matchup } from "@/lib/types";
 
-const BATCH_SIZE = 10;
-const REFILL_THRESHOLD = 5;
-const MAX_SEEN_IDS = 100;
+const BATCH_SIZE = 50;
+const REFILL_THRESHOLD = 30;
 
 export function useMatchupQueue(initialMatchups?: Matchup[]) {
   const [queue, setQueue] = useState<Matchup[]>(initialMatchups ?? []);
@@ -11,9 +10,6 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(!!initialMatchups?.length);
   const isFetchingRef = useRef(false);
   const userFlagIdRef = useRef<number | null>(null);
-  const seenIdsRef = useRef<Set<string>>(
-    new Set(initialMatchups?.map((m) => m.matchupId))
-  );
 
   const fetchMatchups = useCallback(async () => {
     if (isFetchingRef.current) return;
@@ -29,23 +25,9 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
         userFlagIdRef.current = data.userFlagId;
       }
 
-      // Filter out recently seen matchups
-      const newMatchups = data.matchups.filter(
-        (m) => !seenIdsRef.current.has(m.matchupId)
-      );
-
-      // Track new matchup IDs
-      newMatchups.forEach((m) => seenIdsRef.current.add(m.matchupId));
-
-      // Trim seen set if too large (keep most recent)
-      if (seenIdsRef.current.size > MAX_SEEN_IDS) {
-        const entries = Array.from(seenIdsRef.current);
-        seenIdsRef.current = new Set(entries.slice(-MAX_SEEN_IDS));
-      }
-
-      if (newMatchups.length > 0) {
+      if (data.matchups.length > 0) {
         setHasLoadedOnce(true);
-        setQueue((prev) => [...prev, ...newMatchups]);
+        setQueue((prev) => [...prev, ...data.matchups]);
       }
     } catch (error) {
       console.error("Error fetching matchups:", error);
