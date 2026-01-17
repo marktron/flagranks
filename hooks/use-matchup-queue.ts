@@ -10,7 +10,7 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
   const [queue, setQueue] = useState<Matchup[]>(initialMatchups ?? []);
   // Not loading if we have initial data
   const [isLoading, setIsLoading] = useState(!initialMatchups?.length);
-  const isFetchingRef = useRef(false);
+  const [isFetching, setIsFetching] = useState(false);
   const userFlagIdRef = useRef<number | null>(null);
   // Track recently seen matchup IDs to filter duplicates
   const seenIdsRef = useRef<Set<string>>(
@@ -18,8 +18,8 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
   );
 
   const fetchMatchups = useCallback(async () => {
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
+    if (isFetching) return;
+    setIsFetching(true);
 
     try {
       const res = await fetch(`/api/matchups?count=${BATCH_SIZE}`);
@@ -47,21 +47,21 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
     } catch (error) {
       console.error("Error fetching matchups:", error);
     } finally {
-      isFetchingRef.current = false;
+      setIsFetching(false);
       setIsLoading(false);
     }
-  }, []);
+  }, [isFetching]);
 
   const advance = useCallback(() => {
     setQueue((prev) => {
       const next = prev.slice(1);
       // Trigger refill if running low
-      if (next.length < REFILL_THRESHOLD && !isFetchingRef.current) {
+      if (next.length < REFILL_THRESHOLD && !isFetching) {
         fetchMatchups();
       }
       return next;
     });
-  }, [fetchMatchups]);
+  }, [fetchMatchups, isFetching]);
 
   const currentMatchup = queue[0] ?? null;
   const userFlagId = userFlagIdRef.current;
@@ -70,6 +70,7 @@ export function useMatchupQueue(initialMatchups?: Matchup[]) {
     currentMatchup,
     userFlagId,
     isLoading,
+    isFetching,
     advance,
     fetchMatchups,
     queueLength: queue.length,
