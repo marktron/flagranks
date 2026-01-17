@@ -18,14 +18,37 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FlagRanks - Vote on Flag Design",
+  metadataBase: new URL("https://flagranks.com"),
+  title: "Best Flag Designs Ranked - Vote & Compare National Flags | FlagRanks",
   description:
-    "Which flag is better designed? Vote on national flags and see how your taste compares to the rest of the world.",
+    "Vote on 193 national flags to decide which has the best design. See global rankings, compare flags head-to-head, and discover how your taste compares to the world.",
+  keywords: ["flag design", "national flags", "flag ranking", "vote flags", "best flag design", "flag comparison", "world flags", "country flags ranked"],
+  authors: [{ name: "Mark Allen", url: "https://markallen.io" }],
   openGraph: {
-    title: "FlagRanks - Vote on Flag Design",
+    title: "Best Flag Designs Ranked - Vote & Compare | FlagRanks",
     description:
-      "Which flag is better designed? Vote on national flags and see how your taste compares to the rest of the world.",
+      "Vote on 193 national flags to decide which has the best design. See global rankings and compare flags head-to-head.",
     type: "website",
+    url: "https://flagranks.com",
+    siteName: "FlagRanks",
+    images: [
+      {
+        url: "/opengraph-image.png",
+        width: 1200,
+        height: 630,
+        alt: "FlagRanks - Vote on the best national flag designs",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Best Flag Designs Ranked - Vote & Compare | FlagRanks",
+    description:
+      "Vote on 193 national flags to decide which has the best design. See global rankings and compare flags head-to-head.",
+    images: ["/opengraph-image.png"],
+  },
+  alternates: {
+    canonical: "https://flagranks.com",
   },
 };
 
@@ -49,6 +72,32 @@ export default function RootLayout({
         `}
       </Script>
       <body className="antialiased min-h-screen flex flex-col">
+        {/* JSON-LD Structured Data */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebApplication",
+              name: "FlagRanks",
+              url: "https://flagranks.com",
+              description:
+                "Vote on which national flag is better designed and see how your taste compares to the rest of the world.",
+              applicationCategory: "Game",
+              operatingSystem: "Any",
+              offers: {
+                "@type": "Offer",
+                price: "0",
+                priceCurrency: "USD",
+              },
+              author: {
+                "@type": "Person",
+                name: "Mark Allen",
+                url: "https://markallen.io",
+              },
+            }),
+          }}
+        />
         {/* Skip link */}
         <a
           href="#main-content"

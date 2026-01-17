@@ -336,6 +336,65 @@ export async function getFlagIdByIso2(iso2: string): Promise<number | null> {
   return result.rows[0]?.id ?? null;
 }
 
+// Get flag by ISO2 code with stats
+export async function getFlagByIso2(iso2: string): Promise<FlagWithStats | null> {
+  const result = await query<{
+    id: number;
+    country_name: string;
+    iso2: string;
+    svg_url: string;
+    is_active: boolean;
+    wins: number;
+    losses: number;
+    games: number;
+  }>(
+    `SELECT
+       f.id, f.country_name, f.iso2, f.svg_url, f.is_active,
+       COALESCE(fs.wins, 0) as wins,
+       COALESCE(fs.losses, 0) as losses,
+       COALESCE(fs.games, 0) as games
+     FROM flags f
+     LEFT JOIN flag_stats fs ON f.id = fs.flag_id
+     WHERE LOWER(f.iso2) = LOWER($1) AND f.is_active = true`,
+    [iso2]
+  );
+
+  if (result.rows.length === 0) return null;
+
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    country_name: row.country_name,
+    iso2: row.iso2,
+    svg_url: row.svg_url,
+    is_active: row.is_active,
+    wins: row.wins,
+    losses: row.losses,
+    games: row.games,
+    smoothed_score: calculateSmoothedScore(row.wins, row.games),
+    raw_win_pct: row.games > 0 ? Math.round((row.wins / row.games) * 100) : 50,
+  };
+}
+
+// Get flag's rank in leaderboard
+export async function getFlagRank(flagId: number): Promise<number | null> {
+  const result = await query<{ rank: number }>(
+    `SELECT rank FROM (
+       SELECT f.id,
+              ROW_NUMBER() OVER (
+                ORDER BY (COALESCE(fs.wins, 0) + $1 * 0.5) / (COALESCE(fs.games, 0) + $1) DESC,
+                         COALESCE(fs.games, 0) DESC
+              ) as rank
+       FROM flags f
+       LEFT JOIN flag_stats fs ON f.id = fs.flag_id
+       WHERE f.is_active = true
+     ) ranked
+     WHERE id = $2`,
+    [SMOOTHING_K, flagId]
+  );
+  return result.rows[0]?.rank ?? null;
+}
+
 // Get single flag details
 export async function getFlagById(id: number): Promise<FlagWithStats | null> {
   const result = await query<{

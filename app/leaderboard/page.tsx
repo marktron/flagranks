@@ -191,24 +191,27 @@ export default function LeaderboardPage() {
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <div className="w-12 h-8 relative rounded shadow-sm shadow-ink/10 overflow-hidden">
-                        <Image
-                          src={flag.svg_url}
-                          alt={`Flag of ${flag.country_name}`}
-                          fill
-                          className="object-cover saturate-[1.2]"
-                        />
-                      </div>
+                      <Link href={`/flags/${flag.iso2}`}>
+                        <div className="w-12 h-8 relative rounded shadow-sm shadow-ink/10 overflow-hidden hover:ring-2 hover:ring-pop transition-all">
+                          <Image
+                            src={flag.svg_url}
+                            alt={`Flag of ${flag.country_name}`}
+                            fill
+                            className="object-cover saturate-[1.2]"
+                          />
+                        </div>
+                      </Link>
                     </td>
                     <td className="py-3 px-4">
-                      <span
+                      <Link
+                        href={`/flags/${flag.iso2}`}
                         className={cn(
-                          "font-medium",
+                          "font-medium hover:text-pop hover:underline transition-colors",
                           rank <= 3 && "font-bold"
                         )}
                       >
                         {flag.country_name}
-                      </span>
+                      </Link>
                     </td>
                     <td className="py-3 px-4 text-right">
                       <span
