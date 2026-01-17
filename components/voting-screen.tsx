@@ -25,7 +25,7 @@ export function VotingScreen({ initialMatchups }: VotingScreenProps) {
     currentMatchup,
     userFlagId,
     isLoading,
-    isFetching,
+    hasLoadedOnce,
     advance,
     fetchMatchups,
     updateCurrentStats,
@@ -124,7 +124,8 @@ export function VotingScreen({ initialMatchups }: VotingScreenProps) {
     };
   }, [flush]);
 
-  if ((isLoading || isFetching) && !currentMatchup) {
+  // Show loading: initial load OR queue emptied after successful load
+  if (!currentMatchup && (isLoading || hasLoadedOnce)) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <Loader2 className="w-8 h-8 animate-spin text-pop" />
@@ -133,7 +134,8 @@ export function VotingScreen({ initialMatchups }: VotingScreenProps) {
     );
   }
 
-  if (!currentMatchup) {
+  // Database error: only if initial load failed (never loaded successfully)
+  if (!currentMatchup && !hasLoadedOnce) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 max-w-md mx-auto text-center px-4">
         <div className="text-6xl">🏁</div>
