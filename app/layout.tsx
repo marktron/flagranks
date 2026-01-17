@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Syne, Space_Mono } from "next/font/google";
 import Script from "next/script";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { Header } from "@/components/header";
 
@@ -121,6 +122,7 @@ export default function RootLayout({
             </p>
           </div>
         </footer>
+        <SpeedInsights />
       </body>
     </html>
   );
