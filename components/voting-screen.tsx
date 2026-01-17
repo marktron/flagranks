@@ -20,7 +20,6 @@ interface VotingScreenProps {
 export function VotingScreen({ initialMatchups }: VotingScreenProps) {
   const [result, setResult] = useState<OptimisticResult | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [voteCount, setVoteCount] = useState(0);
 
   const {
     currentMatchup,
@@ -83,7 +82,6 @@ export function VotingScreen({ initialMatchups }: VotingScreenProps) {
         n: newN,
         winnerId,
       });
-      setVoteCount((c) => c + 1);
     },
     [currentMatchup, result, userFlagId, addVote, updateCurrentStats]
   );
@@ -172,15 +170,6 @@ export function VotingScreen({ initialMatchups }: VotingScreenProps) {
       {/* Question prompt */}
       <div className="text-center mb-4 sm:mb-12">
         <h2 className="text-xl sm:text-3xl md:text-4xl font-bold">Which flag is better?</h2>
-        {voteCount > 0 && (
-          <p
-            className="mt-1 sm:mt-2 text-xs sm:text-sm text-ink-light"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            You&apos;ve voted {voteCount} time{voteCount !== 1 ? "s" : ""} this session
-          </p>
-        )}
       </div>
 
       {/* Flag cards */}
@@ -228,8 +217,8 @@ export function VotingScreen({ initialMatchups }: VotingScreenProps) {
               onClick={advanceToNext}
               aria-hidden="true"
             />
-            <div className="p-3 pb-6 animate-sheet-up">
-              <div className="sticker-card p-4 w-full">
+            <div className="p-3 pb-6 animate-sheet-up" onClick={advanceToNext}>
+              <div className="sticker-card p-4 w-full cursor-pointer">
                 <div
                   className="w-10 h-1 bg-ink/20 rounded-full mx-auto mb-3"
                   aria-hidden="true"
