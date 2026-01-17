@@ -4,9 +4,11 @@ import type { Matchup } from "@/lib/types";
 const BATCH_SIZE = 10;
 const REFILL_THRESHOLD = 5;
 
-export function useMatchupQueue() {
-  const [queue, setQueue] = useState<Matchup[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+export function useMatchupQueue(initialMatchups?: Matchup[]) {
+  // Initialize with SSR data if provided
+  const [queue, setQueue] = useState<Matchup[]>(initialMatchups ?? []);
+  // Not loading if we have initial data
+  const [isLoading, setIsLoading] = useState(!initialMatchups?.length);
   const isFetchingRef = useRef(false);
   const userFlagIdRef = useRef<number | null>(null);
 

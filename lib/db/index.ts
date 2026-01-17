@@ -57,7 +57,7 @@ else if (isVercel && process.env.PGHOST && process.env.AWS_ROLE_ARN) {
 }
 
 // Helper function to run queries
-async function query<T extends QueryResultRow = QueryResultRow>(
+export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[]
 ): Promise<QueryResult<T>> {

@@ -11,9 +11,13 @@ import { useMatchupQueue } from "@/hooks/use-matchup-queue";
 import { useVoteQueue } from "@/hooks/use-vote-queue";
 import { useVotingKeyboard } from "@/hooks/use-voting-keyboard";
 import { usePageVisibility } from "@/hooks/use-page-visibility";
-import type { OptimisticResult } from "@/lib/types";
+import type { Matchup, OptimisticResult } from "@/lib/types";
 
-export function VotingScreen() {
+interface VotingScreenProps {
+  initialMatchups?: Matchup[];
+}
+
+export function VotingScreen({ initialMatchups }: VotingScreenProps) {
   const [result, setResult] = useState<OptimisticResult | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [voteCount, setVoteCount] = useState(0);
@@ -25,7 +29,7 @@ export function VotingScreen() {
     advance,
     fetchMatchups,
     updateCurrentStats,
-  } = useMatchupQueue();
+  } = useMatchupQueue(initialMatchups);
 
   const { addVote, flush, retryFailed, clearError, state: voteQueueState } = useVoteQueue();
 
@@ -93,10 +97,12 @@ export function VotingScreen() {
     disabled: !currentMatchup,
   });
 
-  // Initial load
+  // Initial load - only fetch if no initial matchups provided (SSR case)
   useEffect(() => {
-    fetchMatchups();
-  }, [fetchMatchups]);
+    if (!initialMatchups?.length) {
+      fetchMatchups();
+    }
+  }, [fetchMatchups, initialMatchups]);
 
   // Auto-advance after 4 seconds when results are shown
   useEffect(() => {

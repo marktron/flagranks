@@ -26,23 +26,30 @@ export async function GET(request: Request) {
 
     const matchups = await getMatchups(count, excludeIds);
 
-    return NextResponse.json({
-      userFlagId,
-      matchups: matchups.map((m) => ({
-        a: {
-          id: m.flagA.id,
-          svg_url: m.flagA.svg_url,
-          country_name: m.flagA.country_name,
+    return NextResponse.json(
+      {
+        userFlagId,
+        matchups: matchups.map((m) => ({
+          a: {
+            id: m.flagA.id,
+            svg_url: m.flagA.svg_url,
+            country_name: m.flagA.country_name,
+          },
+          b: {
+            id: m.flagB.id,
+            svg_url: m.flagB.svg_url,
+            country_name: m.flagB.country_name,
+          },
+          matchupId: `${Math.min(m.flagA.id, m.flagB.id)}-${Math.max(m.flagA.id, m.flagB.id)}`,
+          stats: m.stats,
+        })),
+      },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=30, stale-while-revalidate=300",
         },
-        b: {
-          id: m.flagB.id,
-          svg_url: m.flagB.svg_url,
-          country_name: m.flagB.country_name,
-        },
-        matchupId: `${Math.min(m.flagA.id, m.flagB.id)}-${Math.max(m.flagA.id, m.flagB.id)}`,
-        stats: m.stats,
-      })),
-    });
+      }
+    );
   } catch (error) {
     console.error("Error getting matchups:", error);
     const message = error instanceof Error ? error.message : "Failed to get matchups";
