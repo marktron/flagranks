@@ -1,5 +1,6 @@
 import { getCachedFlagPool, type CachedFlag } from "@/lib/db/cached-flags";
 import type { Matchup } from "@/lib/types";
+import { generateMatchupToken } from "./tokens";
 
 /**
  * Generate initial matchups server-side from cached flag pool.
@@ -66,6 +67,7 @@ export async function generateInitialMatchups(count: number = 50): Promise<Match
         country_name: flagB.country_name,
       },
       matchupId,
+      token: generateMatchupToken(matchupId),
       stats: { aVotes: 0, bVotes: 0, n: 0 },
     });
   }

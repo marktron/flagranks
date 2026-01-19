@@ -82,7 +82,7 @@ export function useVoteQueue() {
       updateState();
 
       const payload = JSON.stringify({
-        votes: votes.map((v) => ({ winnerId: v.winnerId, loserId: v.loserId })),
+        votes: votes.map((v) => ({ winnerId: v.winnerId, loserId: v.loserId, token: v.token })),
       });
 
       if (useBeacon && navigator.sendBeacon) {
@@ -132,10 +132,11 @@ export function useVoteQueue() {
   );
 
   const addVote = useCallback(
-    (winnerId: number, loserId: number) => {
+    (winnerId: number, loserId: number, token: string) => {
       queueRef.current.push({
         winnerId,
         loserId,
+        token,
         timestamp: Date.now(),
         retryCount: 0,
       });

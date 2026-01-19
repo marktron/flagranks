@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { recordVotes } from "@/lib/db";
+import { validateMatchupToken } from "@/lib/matchups/tokens";
 
 export async function POST(request: Request) {
   try {
@@ -14,6 +15,7 @@ export async function POST(request: Request) {
     }
 
     // Validate each vote
+    const validatedVotes: { winnerId: number; loserId: number }[] = [];
     for (const vote of votes) {
       if (!vote.winnerId || !vote.loserId) {
         return NextResponse.json(
@@ -21,10 +23,27 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
+
+      if (!vote.token) {
+        return NextResponse.json(
+          { error: "Each vote must have a token" },
+          { status: 400 }
+        );
+      }
+
+      const validation = validateMatchupToken(vote.token, vote.winnerId, vote.loserId);
+      if (!validation.valid) {
+        return NextResponse.json(
+          { error: `Invalid token: ${validation.error}` },
+          { status: 400 }
+        );
+      }
+
+      validatedVotes.push({ winnerId: vote.winnerId, loserId: vote.loserId });
     }
 
     // Limit batch size
-    const limitedVotes = votes.slice(0, 50);
+    const limitedVotes = validatedVotes.slice(0, 50);
 
     const result = await recordVotes(limitedVotes);
 

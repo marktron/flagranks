@@ -54,7 +54,7 @@ export function VotingScreen({ initialMatchups }: VotingScreenProps) {
 
       // Only send to server if it doesn't involve user's flag
       if (!involvesUserFlag) {
-        addVote(winnerId, loserId);
+        addVote(winnerId, loserId, currentMatchup.token);
       }
 
       // Always record personal vote in localStorage

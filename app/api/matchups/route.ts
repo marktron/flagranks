@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getMatchups, getFlagIdByIso2 } from "@/lib/db";
 import { headers } from "next/headers";
+import { generateMatchupToken } from "@/lib/matchups/tokens";
 
 export async function GET(request: Request) {
   try {
@@ -26,10 +27,11 @@ export async function GET(request: Request) {
 
     const matchups = await getMatchups(count, excludeIds);
 
-    return NextResponse.json(
-      {
-        userFlagId,
-        matchups: matchups.map((m) => ({
+    return NextResponse.json({
+      userFlagId,
+      matchups: matchups.map((m) => {
+        const matchupId = `${Math.min(m.flagA.id, m.flagB.id)}-${Math.max(m.flagA.id, m.flagB.id)}`;
+        return {
           a: {
             id: m.flagA.id,
             svg_url: m.flagA.svg_url,
@@ -40,16 +42,12 @@ export async function GET(request: Request) {
             svg_url: m.flagB.svg_url,
             country_name: m.flagB.country_name,
           },
-          matchupId: `${Math.min(m.flagA.id, m.flagB.id)}-${Math.max(m.flagA.id, m.flagB.id)}`,
+          matchupId,
+          token: generateMatchupToken(matchupId),
           stats: m.stats,
-        })),
-      },
-      {
-        headers: {
-          "Cache-Control": "public, s-maxage=30, stale-while-revalidate=300",
-        },
-      }
-    );
+        };
+      }),
+    });
   } catch (error) {
     console.error("Error getting matchups:", error);
     const message = error instanceof Error ? error.message : "Failed to get matchups";

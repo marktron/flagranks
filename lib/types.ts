@@ -46,6 +46,7 @@ export interface Matchup {
   a: MatchupFlag;
   b: MatchupFlag;
   matchupId: string;
+  token: string;
   stats: MatchupStats;
 }
 
@@ -61,6 +62,7 @@ export interface MatchupsResponse {
 export interface VotePayload {
   winnerId: number;
   loserId: number;
+  token: string;
 }
 
 export interface VotesRequest {
@@ -92,4 +94,5 @@ export interface OptimisticResult {
 export interface PendingVote {
   winnerId: number;
   loserId: number;
+  token: string;
 }
