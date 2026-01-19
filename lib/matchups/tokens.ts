@@ -1,6 +1,6 @@
 import { createHmac } from "crypto";
 
-const TOKEN_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
+const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 function getSecret(): string {
   const secret = process.env.MATCHUP_TOKEN_SECRET;
