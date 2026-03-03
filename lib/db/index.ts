@@ -1,5 +1,3 @@
-import { Signer } from "@aws-sdk/rds-signer";
-import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 import { Pool, QueryResult, QueryResultRow } from "pg";
 import { UN_MEMBER_FLAGS } from "./seed-data";
 import { SMOOTHING_K, calculateSmoothedScore, calculateRawWinPct } from "@/lib/scoring";
@@ -8,52 +6,26 @@ import { SMOOTHING_K, calculateSmoothedScore, calculateRawWinPct } from "@/lib/s
 export type { Flag, FlagWithStats, PairingStats } from "@/lib/types";
 import type { Flag, FlagWithStats, PairingStats } from "@/lib/types";
 
-// Check if we're running on Vercel (has proper AWS IAM auth via OIDC)
-const isVercel = process.env.VERCEL === "1";
-
 // Create pool with appropriate credentials
 let pool: Pool | null = null;
 
-// Option 1: Local development with password-based auth (Docker PostgreSQL)
-if (process.env.PGPASSWORD || process.env.DATABASE_URL) {
-  if (process.env.DATABASE_URL) {
-    pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  } else {
-    pool = new Pool({
-      host: process.env.PGHOST || "localhost",
-      user: process.env.PGUSER || "postgres",
-      password: process.env.PGPASSWORD,
-      database: process.env.PGDATABASE || "flagranks",
-      port: Number(process.env.PGPORT || 5432),
-    });
-  }
-}
-// Option 2: Vercel production with AWS IAM auth
-else if (isVercel && process.env.PGHOST && process.env.AWS_ROLE_ARN) {
-  const signer = new Signer({
-    hostname: process.env.PGHOST,
-    port: Number(process.env.PGPORT || 5432),
-    username: process.env.PGUSER!,
-    region: process.env.AWS_REGION!,
-    credentials: awsCredentialsProvider({
-      roleArn: process.env.AWS_ROLE_ARN,
-      clientConfig: { region: process.env.AWS_REGION! },
-    }),
-  });
+const needsSsl =
+  process.env.DATABASE_URL?.includes("neon.tech") ||
+  process.env.PGSSLMODE === "require";
 
+if (process.env.DATABASE_URL) {
   pool = new Pool({
-    host: process.env.PGHOST,
-    user: process.env.PGUSER,
-    database: process.env.PGDATABASE || "postgres",
-    password: () => signer.getAuthToken(),
-    port: Number(process.env.PGPORT || 5432),
-    ssl: { rejectUnauthorized: false },
+    connectionString: process.env.DATABASE_URL,
+    ...(needsSsl && { ssl: { rejectUnauthorized: false } }),
   });
-
-  // Attach pool for Vercel Functions
-  import("@vercel/functions").then(({ attachDatabasePool }) => {
-    if (pool) attachDatabasePool(pool);
-  }).catch(() => {});
+} else if (process.env.PGPASSWORD) {
+  pool = new Pool({
+    host: process.env.PGHOST || "localhost",
+    user: process.env.PGUSER || "postgres",
+    password: process.env.PGPASSWORD,
+    database: process.env.PGDATABASE || "flagranks",
+    port: Number(process.env.PGPORT || 5432),
+  });
 }
 
 // Helper function to run queries
@@ -63,8 +35,8 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
 ): Promise<QueryResult<T>> {
   if (!pool) {
     throw new Error(
-      "Database not available. The AWS PostgreSQL connection only works on Vercel. " +
-      "For local development, deploy to Vercel or set up a local PostgreSQL instance."
+      "Database not available. Set DATABASE_URL or PGPASSWORD to connect. " +
+      "For local development, run Docker Compose to start PostgreSQL."
     );
   }
   return pool.query<T>(text, params);
